@@ -1,0 +1,30 @@
+# Node dependencies
+node_modules/
+electron/node_modules/
+frontend/node_modules/
+
+# PyInstaller build artifacts
+backend/build/
+backend/dist/
+
+# ffmpeg 바이너리 (배포 시 수동 배치 필요 — README 참조)
+resources/ffmpeg/ffmpeg
+resources/ffmpeg/ffmpeg.exe
+resources/ffmpeg/ffprobe
+resources/ffmpeg/ffprobe.exe
+
+# Electron packaging output
+release/
+
+.sisyphus
+
+.env
+.antigravitycli
+.playwright-cli
+
+# Python
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.venv/

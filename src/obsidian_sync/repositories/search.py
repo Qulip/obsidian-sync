@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select, text
@@ -151,7 +151,9 @@ class SearchRepository:
                 top_k=log.top_k,
                 result_count=log.result_count,
                 latency_ms=log.latency_ms,
-                created_at=datetime.now(UTC),
+                created_at=datetime.now(timezone(timedelta(hours=9))).replace(
+                    tzinfo=None
+                ),
             )
         )
 

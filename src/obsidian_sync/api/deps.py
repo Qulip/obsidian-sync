@@ -1,13 +1,12 @@
-from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import Depends, Request
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from obsidian_sync.core.auth import AuthContext, require_bearer_token
 from obsidian_sync.core.config import Settings, get_settings
-from obsidian_sync.core.exceptions import AppError, ErrorCode
+from obsidian_sync.db.session import get_db_session
 
 
 class RequestMetadata(BaseModel):
@@ -18,6 +17,7 @@ class RequestMetadata(BaseModel):
 
 SettingsDependency = Annotated[Settings, Depends(get_settings)]
 AuthDependency = Annotated[AuthContext, Depends(require_bearer_token)]
+DbSessionDependency = Annotated[AsyncSession, Depends(get_db_session)]
 
 
 def get_request_metadata(
@@ -35,24 +35,3 @@ RequestMetadataDependency = Annotated[
     RequestMetadata,
     Depends(get_request_metadata),
 ]
-
-
-async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
-    sessionmaker = getattr(request.app.state, 'sessionmaker', None)
-    if not isinstance(sessionmaker, async_sessionmaker):
-        raise AppError(
-            ErrorCode.INTERNAL_ERROR,
-            'Database is not configured.',
-            status_code=500,
-        )
-
-    async with sessionmaker() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-
-
-DbSessionDependency = Annotated[AsyncSession, Depends(get_db_session)]

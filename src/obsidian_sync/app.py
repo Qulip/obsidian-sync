@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException
 from starlette.types import ExceptionHandler
 
-from obsidian_sync.api.router import api_router
+from obsidian_sync.api.router import admin_router, api_router
 from obsidian_sync.core.config import Settings, get_settings
 from obsidian_sync.core.exceptions import AppError
 from obsidian_sync.core.handlers import (
@@ -50,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         HTTPException, cast(ExceptionHandler, http_exception_handler)
     )
     app.include_router(api_router)
+    app.include_router(admin_router)
     return app
 
 

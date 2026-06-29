@@ -1,9 +1,14 @@
+from collections.abc import AsyncIterator
+
+from fastapi import Request
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
+
+from obsidian_sync.core.exceptions import AppError, ErrorCode
 
 
 def build_async_engine(
@@ -25,3 +30,21 @@ def build_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
         class_=AsyncSession,
         expire_on_commit=False,
     )
+
+
+async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
+    sessionmaker = getattr(request.app.state, 'sessionmaker', None)
+    if not isinstance(sessionmaker, async_sessionmaker):
+        raise AppError(
+            ErrorCode.INTERNAL_ERROR,
+            'Database is not configured.',
+            status_code=500,
+        )
+
+    async with sessionmaker() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

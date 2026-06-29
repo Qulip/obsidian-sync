@@ -242,6 +242,26 @@ class ArchivedKnowledgeChunk(Base):
     raw_record: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
+class ApiToken(Base):
+    __tablename__ = 'api_tokens'
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default='true',
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
 class SearchLog(Base):
     __tablename__ = 'search_logs'
 

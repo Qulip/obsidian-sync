@@ -21,6 +21,15 @@ async def search_knowledge(
     settings: SettingsDependency,
     metadata: RequestMetadataDependency,
 ) -> ResponseEnvelope[KnowledgeSearchResponse]:
+    """Search personal learning notes using semantic vector search.
+
+    Call this before answering questions about coding patterns, technical topics,
+    troubleshooting records, or work-related subjects — the user may have relevant
+    notes already saved. Returns the most semantically similar note chunks with
+    source path, tags, and agent_hint for context.
+
+    Workflow: list_vaults → search_knowledge → use results to inform your answer.
+    """
     service = KnowledgeSearchService(
         repository=SearchRepository(session),
         ollama_client=OllamaClient(

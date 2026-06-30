@@ -53,7 +53,7 @@ async def create_vault(
     return ok(await service.create_vault(payload))
 
 
-@router.get('', response_model=ResponseEnvelope[ListVaultsData])
+@router.get('', response_model=ResponseEnvelope[ListVaultsData], tags=['mcp'])
 async def list_vaults(
     session: DbSessionDependency,
     settings: SettingsDependency,
@@ -66,6 +66,7 @@ async def list_vaults(
 @router.post(
     '/{vault_id}/sync/manifest',
     response_model=ResponseEnvelope[SyncManifestData],
+    tags=['mcp'],
 )
 async def sync_manifest(
     vault_id: str,
@@ -81,6 +82,7 @@ async def sync_manifest(
 @router.post(
     '/{vault_id}/sync/files',
     response_model=ResponseEnvelope[SyncFileData],
+    tags=['mcp'],
 )
 async def sync_file(
     vault_id: str,
@@ -111,6 +113,7 @@ async def archive_files(
 @router.post(
     '/{vault_id}/reindex',
     response_model=ResponseEnvelope[ReindexResult],
+    tags=['mcp'],
 )
 async def reindex_vault(
     vault_id: str,

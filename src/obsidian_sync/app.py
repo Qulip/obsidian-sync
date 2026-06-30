@@ -4,6 +4,7 @@ from typing import cast
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
+from fastapi_mcp import FastApiMCP
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException
 from starlette.types import ExceptionHandler
@@ -51,6 +52,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(api_router)
     app.include_router(admin_router)
+
+    mcp = FastApiMCP(app, include_tags=['mcp'])
+    mcp.mount()
+
     return app
 
 

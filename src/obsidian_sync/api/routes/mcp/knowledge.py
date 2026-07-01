@@ -11,7 +11,7 @@ from obsidian_sync.repositories.search import SearchRepository
 from obsidian_sync.schemas.search import KnowledgeSearchRequest, KnowledgeSearchResponse
 from obsidian_sync.services.search import KnowledgeSearchService
 
-router = APIRouter(prefix='/knowledge', tags=['knowledge'])
+router = APIRouter(prefix='/mcp/knowledge', tags=['mcp'])
 
 
 @router.post('/search', response_model=ResponseEnvelope[KnowledgeSearchResponse])

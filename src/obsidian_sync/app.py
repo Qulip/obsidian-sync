@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException
 from starlette.types import ExceptionHandler
 
+from obsidian_sync.api.mcp_router import mcp_router
 from obsidian_sync.api.router import admin_router, api_router
 from obsidian_sync.core.config import Settings, get_settings
 from obsidian_sync.core.exceptions import AppError
@@ -52,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(api_router)
     app.include_router(admin_router)
+    app.include_router(mcp_router)
 
     mcp = FastApiMCP(app, include_tags=['mcp'])
     mcp.mount()

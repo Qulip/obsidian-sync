@@ -9,9 +9,10 @@ from obsidian_sync.db.models import Vault, VaultFile
 from obsidian_sync.domain.enums import DocumentVisibility
 from obsidian_sync.domain.errors import DomainValidationError
 from obsidian_sync.domain.files import FileKind, FilePolicy, validate_file_size
-from obsidian_sync.domain.hashing import normalize_sha256, verify_sha256
+from obsidian_sync.domain.hashing import normalize_sha256, sha256_bytes, verify_sha256
 from obsidian_sync.domain.paths import normalize_source_path
 from obsidian_sync.repositories.vaults import VaultRepository
+from obsidian_sync.schemas.mcp import McpSyncFileRequest
 from obsidian_sync.schemas.vaults import (
     ArchiveFilesData,
     ArchiveFilesRequest,
@@ -164,6 +165,45 @@ class VaultSyncService:
                 existing,
                 content_hash=content_hash,
                 size_bytes=request.size,
+                mime_type=request.mime_type,
+                file_type=str(policy.kind),
+                vectorize=policy.vectorize,
+            )
+        await self._session.flush()
+        return SyncFileData(path=source_path, status='uploaded', hash=content_hash)
+
+    async def force_sync_file(
+        self,
+        vault_id: str,
+        request: McpSyncFileRequest,
+    ) -> SyncFileData:
+        normalized_vault_id = _normalize_vault_id(vault_id)
+        vault = await self._require_vault(normalized_vault_id)
+        source_path = _normalize_source_path(request.path)
+        content_bytes = request.content.encode('utf-8')
+        size = len(content_bytes)
+
+        policy = _validate_markdown_file(source_path, size)
+        content_hash = sha256_bytes(content_bytes)
+
+        self._storage.write_atomic(normalized_vault_id, source_path, content_bytes)
+
+        existing = await self._repo.get_file(normalized_vault_id, source_path)
+        if existing is None:
+            self._repo.add_file(
+                vault=vault,
+                source_path=source_path,
+                content_hash=content_hash,
+                size_bytes=size,
+                mime_type=request.mime_type,
+                file_type=str(policy.kind),
+                vectorize=policy.vectorize,
+            )
+        else:
+            self._repo.update_file(
+                existing,
+                content_hash=content_hash,
+                size_bytes=size,
                 mime_type=request.mime_type,
                 file_type=str(policy.kind),
                 vectorize=policy.vectorize,

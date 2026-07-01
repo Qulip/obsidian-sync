@@ -4,6 +4,7 @@ from typing import Any
 from obsidian_sync.clients.ollama import OllamaClient
 from obsidian_sync.core.config import Settings
 from obsidian_sync.core.exceptions import AppError, ErrorCode
+from obsidian_sync.domain.agent_hint import build_agent_hint
 from obsidian_sync.domain.chunking import chunk_markdown
 from obsidian_sync.domain.embeddings import format_chunk_embedding_input
 from obsidian_sync.domain.errors import DomainValidationError
@@ -170,7 +171,7 @@ class ReindexService:
                         heading=chunk.heading,
                         heading_path=list(chunk.heading_path),
                         content=chunk.content,
-                        agent_hint=None,
+                        agent_hint=build_agent_hint(frontmatter, chunk),
                         project=frontmatter.project,
                         domain=frontmatter.domain,
                         document_type=frontmatter.document_type.value,

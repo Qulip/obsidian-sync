@@ -3,6 +3,21 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from obsidian_sync.domain.enums import (
+    DocumentPriority,
+    DocumentStatus,
+    DocumentType,
+    DocumentVisibility,
+)
+
+
+class SearchFiltersRequest(BaseModel):
+    types: list[DocumentType] | None = None
+    status: list[DocumentStatus] | None = None
+    priority: list[DocumentPriority] | None = None
+    visibility: list[DocumentVisibility] | None = None
+    tags: list[str] | None = None
+
 
 class KnowledgeSearchRequest(BaseModel):
     vault_id: str

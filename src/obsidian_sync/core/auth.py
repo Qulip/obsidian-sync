@@ -40,17 +40,9 @@ def _extract_raw_token(credentials: HTTPAuthorizationCredentials | None) -> str:
 
 async def require_bearer_token(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-    settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AuthContext:
     raw_token = _extract_raw_token(credentials)
-
-    configured_token = (
-        settings.api_token.get_secret_value() if settings.api_token else None
-    )
-    if configured_token and secrets.compare_digest(raw_token, configured_token):
-        return AuthContext(token_id=token_identifier(configured_token))
-
     h = _hash_token(raw_token)
     repo = TokenRepository(db)
     db_token = await repo.find_by_hash(h)

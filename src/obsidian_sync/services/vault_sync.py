@@ -2,6 +2,7 @@ import re
 from collections.abc import Sequence
 from typing import NoReturn
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obsidian_sync.core.exceptions import AppError, ErrorCode
@@ -26,7 +27,7 @@ from obsidian_sync.schemas.vaults import (
     SyncManifestRequest,
     VaultData,
 )
-from obsidian_sync.services.storage import VaultStorage
+from obsidian_sync.services.storage import StagedReplace, VaultStorage
 
 _VAULT_ID_PATTERN = re.compile(r'^[a-z0-9-]+$')
 
@@ -149,7 +150,7 @@ class VaultSyncService:
                     hash=content_hash,
                 )
 
-        self._storage.write_atomic(normalized_vault_id, source_path, content)
+        staged = self._storage.stage_replace(normalized_vault_id, source_path, content)
         if existing is None:
             self._repo.add_file(
                 vault=vault,
@@ -169,7 +170,7 @@ class VaultSyncService:
                 file_type=str(policy.kind),
                 vectorize=policy.vectorize,
             )
-        await self._session.flush()
+        await self._commit_staged_file(staged, source_path)
         return SyncFileData(path=source_path, status='uploaded', hash=content_hash)
 
     async def force_sync_file(
@@ -186,9 +187,24 @@ class VaultSyncService:
         policy = _validate_markdown_file(source_path, size)
         content_hash = sha256_bytes(content_bytes)
 
-        self._storage.write_atomic(normalized_vault_id, source_path, content_bytes)
-
         existing = await self._repo.get_file(normalized_vault_id, source_path)
+        if existing is not None:
+            stored_hash = self._storage.file_hash(normalized_vault_id, source_path)
+            if stored_hash != existing.content_hash:
+                _raise_conflicts(
+                    [
+                        {
+                            'path': source_path,
+                            'reason': 'stored_file_hash_mismatch',
+                        }
+                    ]
+                )
+
+        staged = self._storage.stage_replace(
+            normalized_vault_id,
+            source_path,
+            content_bytes,
+        )
         if existing is None:
             self._repo.add_file(
                 vault=vault,
@@ -208,7 +224,7 @@ class VaultSyncService:
                 file_type=str(policy.kind),
                 vectorize=policy.vectorize,
             )
-        await self._session.flush()
+        await self._commit_staged_file(staged, source_path)
         return SyncFileData(path=source_path, status='uploaded', hash=content_hash)
 
     async def archive_files(
@@ -303,6 +319,34 @@ class VaultSyncService:
                     {'path': row.source_path, 'reason': 'stored_file_hash_mismatch'}
                 )
         return conflicts
+
+    async def _commit_staged_file(
+        self,
+        staged: StagedReplace,
+        source_path: str,
+    ) -> None:
+        try:
+            await self._session.flush()
+            staged.promote()
+            await self._session.commit()
+        except IntegrityError as exc:
+            await self._session.rollback()
+            self._storage.rollback_replace(staged)
+            raise AppError(
+                ErrorCode.CONFLICT_DETECTED,
+                'Conflict detected. Manual verification required.',
+                status_code=409,
+                details={
+                    'conflicts': [
+                        {'path': source_path, 'reason': 'database_unique_conflict'}
+                    ]
+                },
+            ) from exc
+        except Exception:
+            await self._session.rollback()
+            self._storage.rollback_replace(staged)
+            raise
+        self._storage.finish_replace(staged)
 
 
 def _normalize_vault_id(raw_vault_id: str) -> str:

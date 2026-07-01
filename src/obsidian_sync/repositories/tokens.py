@@ -11,7 +11,7 @@ class TokenRepository:
         self._session = session
 
     async def find_by_hash(self, token_hash: str) -> ApiToken | None:
-        now = datetime.now(UTC)
+        now = _utcnow_naive()
         result = await self._session.execute(
             select(ApiToken).where(
                 ApiToken.token_hash == token_hash,
@@ -25,7 +25,7 @@ class TokenRepository:
         await self._session.execute(
             update(ApiToken)
             .where(ApiToken.id == token_id)
-            .values(last_used_at=datetime.now(UTC))
+            .values(last_used_at=_utcnow_naive())
         )
 
     async def create(
@@ -54,3 +54,7 @@ class TokenRepository:
             .returning(ApiToken.id)
         )
         return result.scalar_one_or_none() is not None
+
+
+def _utcnow_naive() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)

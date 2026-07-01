@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print available Obsidian Sync vaults as JSON.
+"""Print available Obsidian Sync vaults through the MCP REST API as JSON.
 
 The agent reads this output and picks the most appropriate vault
 before calling save_knowledge.py.
@@ -9,6 +9,7 @@ Usage:
 
 Requires only Python 3 standard library.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -37,7 +38,7 @@ def main() -> int:
 
 def _get_vaults(server_url: str, token: str) -> list[object]:
     req = urllib.request.Request(
-        f'{server_url}/vaults',
+        f'{server_url}/mcp/vaults',
         headers={'Authorization': f'Bearer {token}', 'User-Agent': 'list-vaults/0.1'},
         method='GET',
     )
@@ -46,19 +47,21 @@ def _get_vaults(server_url: str, token: str) -> list[object]:
             body = response.read()
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode('utf-8', errors='replace')
-        raise RuntimeError(f'GET /vaults failed (HTTP {exc.code}): {detail}') from exc
+        raise RuntimeError(
+            f'GET /mcp/vaults failed (HTTP {exc.code}): {detail}'
+        ) from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f'GET /vaults failed: {exc.reason}') from exc
+        raise RuntimeError(f'GET /mcp/vaults failed: {exc.reason}') from exc
 
     decoded = json.loads(body)
     if not isinstance(decoded, dict) or decoded.get('success') is not True:
-        raise RuntimeError(f'GET /vaults returned error: {decoded.get("error")}')
+        raise RuntimeError(f'GET /mcp/vaults returned error: {decoded.get("error")}')
     data = decoded.get('data')
     if not isinstance(data, dict):
-        raise RuntimeError('GET /vaults returned no data field')
+        raise RuntimeError('GET /mcp/vaults returned no data field')
     vaults = data.get('vaults', [])
     if not isinstance(vaults, list):
-        raise RuntimeError('GET /vaults returned unexpected vaults shape')
+        raise RuntimeError('GET /mcp/vaults returned unexpected vaults shape')
     return vaults
 
 

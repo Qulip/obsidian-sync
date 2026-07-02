@@ -43,6 +43,13 @@ async def require_bearer_token(
     db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> AuthContext:
     raw_token = _extract_raw_token(credentials)
+    return await authenticate_bearer_token(raw_token, db)
+
+
+async def authenticate_bearer_token(
+    raw_token: str,
+    db: AsyncSession,
+) -> AuthContext:
     h = _hash_token(raw_token)
     repo = TokenRepository(db)
     db_token = await repo.find_by_hash(h)

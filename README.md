@@ -4,7 +4,7 @@
 pgvector와 Ollama embedding으로 검색하는 개인 지식 저장소 서버입니다.
 
 일반 클라이언트는 REST API를 사용하고, Agent는 REST MCP API 또는
-`fastapi-mcp`가 노출하는 MCP tool을 사용할 수 있습니다.
+Streamable HTTP MCP tool을 사용할 수 있습니다.
 
 ## Architecture
 
@@ -414,16 +414,15 @@ curl -sS -X POST http://localhost:8000/mcp/knowledge/search \
   -d '{"vault_id":"personal-main","query":"deployment checklist","top_k":5}'
 ```
 
-### fastapi-mcp SSE
+### Streamable HTTP MCP
 
-`fastapi-mcp` mounts an MCP server at:
+The MCP server uses Streamable HTTP at:
 
 ```text
-GET /mcp
-POST /mcp/messages/
+POST /mcp
 ```
 
-Available tools are generated from routes tagged `mcp`, for example:
+Available tools:
 
 - `list_vaults_mcp_vaults_get`
 - `sync_manifest_mcp_vaults__vault_id__sync_manifest_post`
@@ -432,9 +431,7 @@ Available tools are generated from routes tagged `mcp`, for example:
 - `search_knowledge_mcp_knowledge_search_post`
 
 Pass the DB API token as an `Authorization: Bearer ...` header in the MCP client.
-The SSE stream may open without a valid token depending on the client, but actual
-tool calls invoke the protected REST API and fail with 401 unless a valid DB API
-token is forwarded.
+Tool calls fail with 401 unless a valid DB API token is forwarded.
 
 Admin token is intentionally rejected for MCP tool calls.
 

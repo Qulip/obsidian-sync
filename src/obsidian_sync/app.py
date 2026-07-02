@@ -4,7 +4,7 @@ from typing import cast
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
-from fastapi_mcp import FastApiMCP
+from mcp.server.fastmcp import FastMCP
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.exceptions import HTTPException
 from starlette.types import ExceptionHandler
@@ -19,10 +19,12 @@ from obsidian_sync.core.handlers import (
     validation_exception_handler,
 )
 from obsidian_sync.db.session import build_async_engine, build_sessionmaker
+from obsidian_sync.mcp_server import create_mcp_app, create_mcp_server
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
+    mcp_server: FastMCP | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -33,7 +35,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             engine = build_async_engine(resolved_settings.database_url)
             app.state.sessionmaker = build_sessionmaker(engine)
         try:
-            yield
+            if mcp_server is None:
+                yield
+            else:
+                async with mcp_server.session_manager.run():
+                    yield
         finally:
             if engine is not None:
                 await engine.dispose()
@@ -55,8 +61,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(mcp_router)
 
-    mcp = FastApiMCP(app, include_tags=['mcp'])
-    mcp.mount()
+    mcp_server = create_mcp_server(app)
+    app.mount('', create_mcp_app(mcp_server))
 
     return app
 

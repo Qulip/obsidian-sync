@@ -20,7 +20,7 @@ Use four-space indentation, single quotes, and an 88-character line length; thes
 
 ## Testing Guidelines
 
-No test suite is currently present. When adding tests, create a `tests/` directory that mirrors `src/obsidian_sync/`, name files `test_<module>.py`, and focus on domain helpers, service behavior, and API route contracts. Until a test runner is added to `pyproject.toml`, run `uv run ruff check .` and `uv run mypy` before submitting changes.
+The project uses pytest with `testpaths = ["tests"]`. Name new test files `test_<module>.py` and place focused unit tests under the matching area, such as `tests/sync_agent/` for local agent behavior and top-level `tests/test_<feature>.py` for API/service flows. Before submitting changes, run `uv run ruff check .`, `uv run mypy`, and the relevant pytest target. For DB/API changes, run `uv run pytest` with local PostgreSQL available because API and integration tests create and migrate a dedicated `obsidian_sync_test` database.
 
 ## Commit & Pull Request Guidelines
 

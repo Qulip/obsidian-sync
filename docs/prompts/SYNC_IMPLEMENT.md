@@ -1,3 +1,8 @@
+> Historical prompt: 이 파일은 양방향 sync 기능을 구현하기 위해 작성된
+> 일회성 작업 프롬프트입니다. 현재 harness 지침이나 최신 API 계약으로
+> 사용하지 마세요. 최신 동기화 정책은 `README.md`, `docs/sync-api.md`,
+> `docs/sync-agent.md`, `docs/vectorizing.md`를 기준으로 합니다.
+
 이번 작업의 목표는 **자동 병합 없는 API Sync**를 설계하고 구현하는 것이다.
 
 작업 진행 방식의 중요한 원칙은 다음과 같다.

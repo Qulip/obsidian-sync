@@ -1,7 +1,17 @@
 # Obsidian Sync
 
-개인 Obsidian Vault를 FastAPI 서버에 단방향 동기화하고, PostgreSQL +
+개인 Obsidian Vault를 FastAPI 서버에 동기화하고, PostgreSQL +
 pgvector와 Ollama embedding으로 검색하는 개인 지식 저장소 서버입니다.
+
+동기화 방식은 두 가지입니다.
+
+- **Revision 기반 양방향 sync** (권장): `obsidian-sync-agent` CLI가 여러 PC의
+  로컬 Vault와 서버 Canonical Vault를 revision으로 동기화합니다. 같은 파일이
+  두 PC에서 동시에 수정되면 자동 병합 없이 409 Conflict로 처리하고, 로컬에
+  `.conflict` 파일을 남깁니다. 자세한 내용은 [Client (sync-agent)](#client-sync-agent)와
+  [docs/sync-api.md](docs/sync-api.md), [docs/sync-agent.md](docs/sync-agent.md) 참고.
+- **단방향 업로드** (기존): `scripts/upload_obsidian.py`가 로컬 → 서버로만
+  Markdown을 올립니다. [Upload With Script](#upload-with-script) 참고.
 
 일반 클라이언트는 REST API를 사용하고, Agent는 REST MCP API 또는
 Streamable HTTP MCP tool을 사용할 수 있습니다.
@@ -303,6 +313,154 @@ curl -sS -X POST http://localhost:8000/vaults/personal-main/sync/archive \
 Storage writes use staged replace and rollback logic. If DB commit fails during upload,
 the service attempts to restore the previous file state.
 
+## Client (sync-agent)
+
+`obsidian-sync-agent`는 각 PC에서 실행되는 로컬 클라이언트입니다. 로컬 Vault와
+서버 Canonical Vault를 revision 기반으로 양방향 동기화합니다. 여러 PC를
+`device_id`로 구분하며, 같은 파일이 동시에 수정되면 자동 병합 없이 로컬에
+`.conflict` 파일을 만들어 사용자가 직접 해결하게 합니다.
+
+전체 정책(revision, conflict, soft delete, restore)은 [docs/sync-api.md](docs/sync-api.md),
+에이전트 상세 동작은 [docs/sync-agent.md](docs/sync-agent.md)를 참고하세요.
+
+### Prerequisites
+
+클라이언트를 쓰기 전에 서버 쪽에서 아래를 준비합니다.
+
+1. Vault 생성 (`POST /vaults`, [Create Vault](#create-vault) 참고).
+2. DB API token 발급 (`POST /tokens`, [API Token](#api-token) 참고). 이 토큰을
+   각 PC의 `OBSIDIAN_SYNC_AGENT_TOKEN`으로 사용합니다.
+
+> **인터넷 노출 시 주의**: 서버는 HTTP(8000)만 바인딩하고 내장 TLS가 없습니다.
+> Bearer 토큰이 평문으로 오가므로, 외부에서 접속한다면 리버스 프록시(Caddy/nginx)로
+> HTTPS를 종단하거나 Tailscale/WireGuard 같은 사설 네트워크 안에서만 접근하세요.
+
+### Install
+
+각 PC에서 이 저장소를 clone 한 뒤 설치합니다. 진입점은 `obsidian-sync-agent`입니다.
+
+```bash
+uv sync
+uv run obsidian-sync-agent --help
+```
+
+### Configuration
+
+설정 우선순위는 **CLI 인자 > 환경변수 > 설정 파일 > 기본값**입니다.
+설정 파일 위치는 `{vault_root}/.obsidian-sync-agent/config.json`입니다.
+
+| Setting | CLI | Env | Config file key | Default |
+| --- | --- | --- | --- | --- |
+| Server base URL | `--server` | `OBSIDIAN_SYNC_AGENT_SERVER` | `server_base_url` | (required) |
+| Vault ID | `--vault-id` | `OBSIDIAN_SYNC_AGENT_VAULT_ID` | `vault_id` | (required) |
+| Vault root | `--vault-root` | `OBSIDIAN_SYNC_AGENT_VAULT_ROOT` | - | 현재 디렉터리 |
+| Device ID | `--device-id` | `OBSIDIAN_SYNC_AGENT_DEVICE_ID` | `device_id` | hostname |
+| Device name | - | `OBSIDIAN_SYNC_AGENT_DEVICE_NAME` | `device_name` | - |
+| API token | - | `OBSIDIAN_SYNC_AGENT_TOKEN` | - (파일/로그 미저장) | - |
+| Require Obsidian refresh | `--require-obsidian-refresh` | - | `require_obsidian_refresh` | `false` |
+
+API token은 보안상 환경변수로만 받습니다. 설정 파일이나 로그에는 저장되지 않습니다.
+
+환경변수만으로 실행하는 예시:
+
+```bash
+export OBSIDIAN_SYNC_AGENT_SERVER='http://localhost:8000'
+export OBSIDIAN_SYNC_AGENT_VAULT_ID='personal-main'
+export OBSIDIAN_SYNC_AGENT_TOKEN='osk_...'
+
+uv run obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault"
+```
+
+설정 파일로 관리하는 예시 (`~/ObsidianVault/.obsidian-sync-agent/config.json`):
+
+```json
+{
+  "server_base_url": "http://localhost:8000",
+  "vault_id": "personal-main",
+  "device_id": "macbook-pro",
+  "device_name": "MacBook Pro",
+  "obsidian": {
+    "enabled": false,
+    "base_url": "https://127.0.0.1:27124",
+    "verify_tls": false,
+    "reload_command": false
+  }
+}
+```
+
+### Run
+
+한 번의 sync 사이클(pull → 로컬 반영 → scan → push)을 실행합니다.
+
+```bash
+uv run obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault"
+```
+
+실제 쓰기/전송 없이 계획만 출력:
+
+```bash
+uv run obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault" --dry-run
+```
+
+서버/로컬 동기화 상태 확인:
+
+```bash
+uv run obsidian-sync-agent status --vault-root "$HOME/ObsidianVault"
+```
+
+주기 실행은 cron/launchd/systemd timer로 위 `sync` 명령을 반복 호출하면 됩니다.
+
+Exit codes:
+
+| Code | 의미 |
+| --- | --- |
+| `0` | sync 성공 (또는 `--dry-run`) |
+| `1` | sync는 완료됐지만 conflict 발생 → `.conflict` 파일 확인 필요 |
+| `2` | 설정 오류 또는 sync 실패 (서버 연결 불가 등) |
+| `3` | `--require-obsidian-refresh` 지정 시 Obsidian refresh 단계 실패 |
+
+### Local State
+
+에이전트는 Vault 안 숨김 디렉터리에 상태를 보관합니다. 이 디렉터리는 동기화와
+벡터화 대상에서 제외됩니다.
+
+- `{vault_root}/.obsidian-sync-agent/manifest.json`: 마지막 sync cursor와 파일별
+  revision/hash. 손상 시 삭제하면 다음 sync에서 재구성됩니다.
+- `{vault_root}/.obsidian-sync-agent/config.json`: 선택적 설정 파일.
+
+무시되는 항목: `.obsidian/`, `.obsidian-sync-agent/`, `.trash/`, `.DS_Store`,
+`Thumbs.db`, `*.conflict.*.md`, `*.sync-conflict*.md`, 그 밖의 숨김 파일.
+v1에서는 `.md` 파일만 동기화합니다.
+
+### Conflict Resolution
+
+같은 파일이 다른 PC에서 먼저 수정돼 서버 revision이 앞서 있으면, push가 409로
+거부되고 로컬에 아래 이름의 파일이 생성됩니다.
+
+```text
+Notes/JPA.conflict.macbook-pro.20260707-121500.md
+```
+
+이 파일에는 로컬 버전과 서버 버전이 모두 담깁니다. 해결 방법:
+
+1. `.conflict` 파일을 열어 두 버전을 비교하고 원본(`Notes/JPA.md`)을 원하는
+   내용으로 직접 정리합니다.
+2. `.conflict` 파일을 삭제합니다.
+3. 다시 `obsidian-sync-agent sync`를 실행합니다.
+
+`.conflict` 파일은 동기화·벡터화 대상에서 제외되므로 서버로 올라가거나 검색에
+포함되지 않습니다.
+
+### Obsidian Local REST API (optional)
+
+Obsidian이 실행 중이면 로컬 디스크 변경을 앱이 file watcher로 자동 인식하므로
+별도 연동 없이도 동작합니다. 연동을 켜면(`obsidian.enabled: true`) 에이전트가
+Local REST API에 연결 확인을 시도하고, `reload_command: true`일 때만 앱 reload를
+실행합니다(저장 안 된 편집 내용이 유실될 수 있어 기본 off). Local REST API 키는
+`OBSIDIAN_LOCAL_REST_API_KEY` 환경변수로 전달합니다. 연동 실패는 기본적으로
+warning이며 sync 성공에 영향을 주지 않습니다. 자세한 내용은
+[docs/sync-agent.md](docs/sync-agent.md)를 참고하세요.
+
 ## Indexing
 
 Reindex changed files:
@@ -537,9 +695,16 @@ DB API token:
 | --- | --- | --- |
 | `POST` | `/vaults` | Create vault |
 | `GET` | `/vaults` | List vaults |
-| `POST` | `/vaults/{vault_id}/sync/manifest` | Detect changed files |
-| `POST` | `/vaults/{vault_id}/sync/files` | Upload Markdown with hash/size check |
-| `POST` | `/vaults/{vault_id}/sync/archive` | Archive removed files |
+| `POST` | `/vaults/{vault_id}/sync/manifest` | Detect changed files (one-way) |
+| `POST` | `/vaults/{vault_id}/sync/files` | Upload Markdown with hash/size check (one-way) |
+| `POST` | `/vaults/{vault_id}/sync/archive` | Archive removed files (one-way) |
+| `POST` | `/vaults/{vault_id}/sync/devices` | Register a sync device |
+| `GET` | `/vaults/{vault_id}/sync/changes` | Pull changes since a cursor |
+| `GET` | `/vaults/{vault_id}/sync/status` | Server/device sync status |
+| `GET` | `/vaults/{vault_id}/files/{path}` | Download a file (revision-based) |
+| `PUT` | `/vaults/{vault_id}/files/{path}` | Upload a file with `base_revision` (409 on conflict) |
+| `DELETE` | `/vaults/{vault_id}/files/{path}` | Soft delete a file (JSON body) |
+| `POST` | `/vaults/{vault_id}/sync/restore` | Restore a soft-deleted file |
 | `POST` | `/vaults/{vault_id}/reindex` | Reindex vault |
 | `POST` | `/vaults/{vault_id}/reindex/file` | Reindex one file |
 | `POST` | `/knowledge/search` | Semantic search |

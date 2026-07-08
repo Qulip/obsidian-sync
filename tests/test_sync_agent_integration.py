@@ -48,7 +48,7 @@ def _mint_token() -> None:
 
 
 @pytest.fixture
-def live_server(tmp_path: Path) -> Iterator[str]:
+def live_server(clean_db: None, tmp_path: Path) -> Iterator[str]:
     port = _free_port()
     storage = tmp_path / 'server-storage'
     log_path = tmp_path / 'server.log'
@@ -196,7 +196,22 @@ def test_two_vault_sync_cycle(live_server: str, tmp_path: Path) -> None:
     ).json()['data']['changes']
     assert not any('.conflict.' in change['path'] for change in changes)
 
-    # 4. Delete in A propagates to B and soft-deletes on the server.
+    # 4. Once the user edits the original file to resolve the conflict, the
+    # agent pushes it using the conflicted server revision as the new base.
+    _write(vault_b, 'JPA.md', 'resolved from A and B')
+    resolved_summary = _sync(vault_b, live_server, 'devb')
+    assert not resolved_summary.conflicts
+    assert resolved_summary.pushed == 1
+    assert (
+        _server_get(live_server, 'JPA.md').json()['data']['content']
+        == 'resolved from A and B'
+    )
+    _sync(vault_a, live_server, 'deva')
+    assert (vault_a / 'JPA.md').read_text(encoding='utf-8') == (
+        'resolved from A and B'
+    )
+
+    # 5. Delete in A propagates to B and soft-deletes on the server.
     _write(vault_a, 'note2.md', 'note two')
     _sync(vault_a, live_server, 'deva')
     _sync(vault_b, live_server, 'devb')
@@ -210,7 +225,21 @@ def test_two_vault_sync_cycle(live_server: str, tmp_path: Path) -> None:
     deleted_rows = _fetch_deleted('note2.md')
     assert deleted_rows and deleted_rows[0] is True
 
-    # 5. Obsidian disabled: a converged CLI sync exits 0.
+    # 6. A server-delete conflict can be resolved by deleting the local file.
+    _write(vault_a, 'note3.md', 'note three')
+    _sync(vault_a, live_server, 'deva')
+    _sync(vault_b, live_server, 'devb')
+    (vault_a / 'note3.md').unlink()
+    _sync(vault_a, live_server, 'deva')
+    _write(vault_b, 'note3.md', 'local edit after server delete')
+    delete_conflict = _sync(vault_b, live_server, 'devb')
+    assert delete_conflict.conflicts == ['note3.md']
+    (vault_b / 'note3.md').unlink()
+    accepted_delete = _sync(vault_b, live_server, 'devb')
+    assert not accepted_delete.conflicts
+    assert _server_get(live_server, 'note3.md').status_code == 404
+
+    # 7. Obsidian disabled: a converged CLI sync exits 0.
     result = subprocess.run(
         [
             'uv',

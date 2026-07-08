@@ -17,11 +17,20 @@ class ManifestEntry:
 
 
 @dataclass(slots=True)
+class ManifestConflict:
+    server_revision: int
+    server_content_hash: str | None
+    local_content_hash: str
+    server_deleted: bool = False
+
+
+@dataclass(slots=True)
 class Manifest:
     vault_id: str = ''
     device_id: str = ''
     last_sync_cursor: int = 0
     files: dict[str, ManifestEntry] = field(default_factory=dict)
+    conflicts: dict[str, ManifestConflict] = field(default_factory=dict)
 
 
 def manifest_path(vault_root: Path) -> Path:
@@ -51,6 +60,15 @@ def save_manifest(vault_root: Path, manifest: Manifest) -> None:
             }
             for path, entry in sorted(manifest.files.items())
         },
+        'conflicts': {
+            path: {
+                'server_revision': conflict.server_revision,
+                'server_content_hash': conflict.server_content_hash,
+                'local_content_hash': conflict.local_content_hash,
+                'server_deleted': conflict.server_deleted,
+            }
+            for path, conflict in sorted(manifest.conflicts.items())
+        },
     }
     text = json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True)
     write_bytes_atomic(manifest_path(vault_root), text.encode('utf-8'))
@@ -68,9 +86,25 @@ def _manifest_from_dict(raw: dict[str, Any]) -> Manifest:
                 content_hash=str(entry.get('content_hash', '')),
                 last_synced_at=str(entry.get('last_synced_at', '')),
             )
+    conflicts_raw = raw.get('conflicts')
+    conflicts: dict[str, ManifestConflict] = {}
+    if isinstance(conflicts_raw, dict):
+        for path, conflict in conflicts_raw.items():
+            if not isinstance(conflict, dict):
+                continue
+            server_hash = conflict.get('server_content_hash')
+            conflicts[str(path)] = ManifestConflict(
+                server_revision=int(conflict.get('server_revision', 0)),
+                server_content_hash=(
+                    str(server_hash) if server_hash is not None else None
+                ),
+                local_content_hash=str(conflict.get('local_content_hash', '')),
+                server_deleted=bool(conflict.get('server_deleted', False)),
+            )
     return Manifest(
         vault_id=str(raw.get('vault_id', '')),
         device_id=str(raw.get('device_id', '')),
         last_sync_cursor=int(raw.get('last_sync_cursor', 0)),
         files=files,
+        conflicts=conflicts,
     )

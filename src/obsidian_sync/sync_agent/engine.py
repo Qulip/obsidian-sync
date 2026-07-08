@@ -22,6 +22,7 @@ from obsidian_sync.sync_agent.conflict import (
 )
 from obsidian_sync.sync_agent.manifest import (
     Manifest,
+    ManifestConflict,
     ManifestEntry,
     load_manifest,
     save_manifest,
@@ -239,6 +240,7 @@ def _apply_delete(
     if entry is not None and local_hash == entry.content_hash:
         destination.unlink()
         manifest.files.pop(path, None)
+        manifest.conflicts.pop(path, None)
         summary.locally_deleted += 1
         logger.info('deleted %s (server revision %s)', path, change.revision)
         return
@@ -250,6 +252,12 @@ def _apply_delete(
         server_revision=change.revision,
         local_content=destination.read_text(encoding='utf-8'),
         server_content=SERVER_DELETED_PLACEHOLDER,
+    )
+    manifest.conflicts[path] = ManifestConflict(
+        server_revision=change.revision,
+        server_content_hash=change.content_hash,
+        local_content_hash=local_hash,
+        server_deleted=True,
     )
     summary.conflicts.append(path)
     logger.warning('conflict on delete of %s; wrote %s', path, conflict.name)
@@ -292,6 +300,12 @@ def _apply_write(
                 local_content=destination.read_text(encoding='utf-8'),
                 server_content=server_file.content,
             )
+            manifest.conflicts[path] = ManifestConflict(
+                server_revision=server_file.revision,
+                server_content_hash=server_file.content_hash,
+                local_content_hash=local_hash,
+                server_deleted=False,
+            )
             summary.conflicts.append(path)
             logger.warning('conflict applying %s; wrote %s', path, conflict.name)
             return
@@ -302,6 +316,7 @@ def _apply_write(
         content_hash=server_file.content_hash,
         last_synced_at=_now_iso(),
     )
+    manifest.conflicts.pop(path, None)
     summary.applied += 1
     logger.info(
         'applied %s %s (revision %s)',
@@ -329,7 +344,14 @@ def _push(
         if path in skip_paths:
             continue
         entry = manifest.files.get(path)
-        base = entry.server_revision if entry else 0
+        conflict = manifest.conflicts.get(path)
+        if conflict is not None:
+            destination = safe_vault_destination(config.vault_root, path)
+            if sha256_file(destination) == conflict.local_content_hash:
+                continue
+            base = conflict.server_revision
+        else:
+            base = entry.server_revision if entry else 0
         _push_upsert(
             config, manifest, client, summary, logger, path, base_revision=base
         )
@@ -369,6 +391,7 @@ def _push_upsert(
         content_hash=result.content_hash,
         last_synced_at=_now_iso(),
     )
+    manifest.conflicts.pop(path, None)
     summary.pushed += 1
     logger.info('pushed %s (revision %s)', path, result.revision)
 
@@ -382,7 +405,17 @@ def _push_delete(
     path: str,
 ) -> None:
     entry = manifest.files.get(path)
-    base_revision = entry.server_revision if entry else 0
+    conflict = manifest.conflicts.get(path)
+    if conflict is not None and conflict.server_deleted:
+        manifest.files.pop(path, None)
+        manifest.conflicts.pop(path, None)
+        logger.info('accepted server delete for %s', path)
+        return
+    base_revision = (
+        conflict.server_revision
+        if conflict is not None
+        else entry.server_revision if entry else 0
+    )
     try:
         client.delete_file(
             config.vault_id,
@@ -396,6 +429,7 @@ def _push_delete(
         )
         return
     manifest.files.pop(path, None)
+    manifest.conflicts.pop(path, None)
     summary.remotely_deleted += 1
     logger.info('deleted %s on server', path)
 

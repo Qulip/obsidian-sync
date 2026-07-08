@@ -5,6 +5,7 @@ from unittest import TestCase
 from obsidian_sync.sync_agent.config import CONFIG_DIRNAME
 from obsidian_sync.sync_agent.manifest import (
     Manifest,
+    ManifestConflict,
     ManifestEntry,
     load_manifest,
     manifest_path,
@@ -32,6 +33,14 @@ class ManifestTests(TestCase):
                         server_revision=3,
                         content_hash='a' * 64,
                         last_synced_at='2026-07-07T00:00:00+00:00',
+                    )
+                },
+                conflicts={
+                    'notes/JPA.md': ManifestConflict(
+                        server_revision=4,
+                        server_content_hash='b' * 64,
+                        local_content_hash='c' * 64,
+                        server_deleted=True,
                     )
                 },
             )

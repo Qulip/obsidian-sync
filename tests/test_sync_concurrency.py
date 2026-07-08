@@ -54,7 +54,7 @@ def _mint_token() -> None:
 
 
 @pytest.fixture
-def live_server(tmp_path: Path) -> Iterator[str]:
+def live_server(clean_db: None, tmp_path: Path) -> Iterator[str]:
     port = _free_port()
     storage = tmp_path / 'server-storage'
     log_path = tmp_path / 'server.log'

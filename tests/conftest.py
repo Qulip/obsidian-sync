@@ -68,7 +68,7 @@ async def _create_test_database() -> None:
         await conn.close()
 
 
-@pytest.fixture(scope='session', autouse=True)
+@pytest.fixture(scope='session')
 def _database() -> Iterator[None]:
     asyncio.run(_create_test_database())
 
@@ -96,13 +96,13 @@ async def _truncate_all() -> None:
         await conn.close()
 
 
-@pytest.fixture(autouse=True)
-def _clean_db(_database: None) -> None:
+@pytest.fixture
+def clean_db(_database: None) -> None:
     asyncio.run(_truncate_all())
 
 
 @pytest.fixture
-def db_fetch() -> Callable[..., list[asyncpg.Record]]:
+def db_fetch(clean_db: None) -> Callable[..., list[asyncpg.Record]]:
     def _fetch(query: str, *args: Any) -> list[asyncpg.Record]:
         async def run() -> list[asyncpg.Record]:
             conn = await asyncpg.connect(dsn=_TEST_DSN)
@@ -117,7 +117,7 @@ def db_fetch() -> Callable[..., list[asyncpg.Record]]:
 
 
 @pytest.fixture
-def app_client() -> Iterator[Any]:
+def app_client(clean_db: None) -> Iterator[Any]:
     from fastapi.testclient import TestClient
 
     from obsidian_sync.app import create_app
@@ -136,7 +136,7 @@ def _hash_token(raw: str) -> str:
 
 
 @pytest.fixture
-def api_token() -> str:
+def api_token(clean_db: None) -> str:
     raw = 'test-bearer-token'
 
     async def insert() -> None:

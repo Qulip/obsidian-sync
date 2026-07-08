@@ -17,6 +17,7 @@ Content options (mutually exclusive):
 
 Requires only Python 3 standard library — no uv, pip, or extra packages needed.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -41,7 +42,11 @@ def main() -> int:
     parser.add_argument('--server-url', required=True, help='Base URL of the sync API')
     parser.add_argument('--token', required=True, help='API bearer token')
     parser.add_argument('--vault-id', required=True, help='Target vault identifier')
-    parser.add_argument('--title', required=True, help='Note title (used for filename when --path is omitted)')
+    parser.add_argument(
+        '--title',
+        required=True,
+        help='Note title (used for filename when --path is omitted)',
+    )
 
     content_group = parser.add_mutually_exclusive_group(required=True)
     content_group.add_argument('--content', help='Note body as an inline string')
@@ -51,10 +56,14 @@ def main() -> int:
         help='Path to a markdown file, or - to read from stdin',
     )
 
-    parser.add_argument('--path', help='Custom path inside the vault (e.g. "Folder/note.md")')
+    parser.add_argument(
+        '--path', help='Custom path inside the vault (e.g. "Folder/note.md")'
+    )
     parser.add_argument('--tags', help='Comma-separated tags added to frontmatter')
     parser.add_argument('--project', help='Source project name added to frontmatter')
-    parser.add_argument('--no-reindex', action='store_true', help='Skip reindex request after upload')
+    parser.add_argument(
+        '--no-reindex', action='store_true', help='Skip reindex request after upload'
+    )
 
     args = parser.parse_args()
 
@@ -79,7 +88,8 @@ def _save(server_url: str, args: argparse.Namespace) -> int:
 
     # Step 1: declare what we intend to upload
     manifest_data = _post(
-        server_url, args.token,
+        server_url,
+        args.token,
         f'/vaults/{args.vault_id}/sync/manifest',
         {'files': [{'path': note_path, 'hash': content_hash, 'size': size}]},
     )
@@ -91,7 +101,8 @@ def _save(server_url: str, args: argparse.Namespace) -> int:
 
     # Step 2: upload file content
     upload_data = _post(
-        server_url, args.token,
+        server_url,
+        args.token,
         f'/vaults/{args.vault_id}/sync/files',
         {
             'path': note_path,
@@ -105,22 +116,30 @@ def _save(server_url: str, args: argparse.Namespace) -> int:
     # Step 3: reindex (non-fatal — Ollama may not be running)
     if not args.no_reindex:
         try:
-            _post(server_url, args.token, f'/vaults/{args.vault_id}/reindex', {'mode': 'changed_only'})
+            _post(
+                server_url,
+                args.token,
+                f'/vaults/{args.vault_id}/reindex',
+                {'mode': 'changed_only'},
+            )
         except RuntimeError:
             pass
 
-    _print({
-        'status': upload_data.get('status', 'uploaded'),
-        'vault_id': args.vault_id,
-        'path': note_path,
-        'hash': content_hash,
-    })
+    _print(
+        {
+            'status': upload_data.get('status', 'uploaded'),
+            'vault_id': args.vault_id,
+            'path': note_path,
+            'hash': content_hash,
+        }
+    )
     return 0
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _read_content(args: argparse.Namespace) -> str:
     if args.content is not None:
@@ -177,6 +196,7 @@ def _print(data: dict[str, object]) -> None:
 # ---------------------------------------------------------------------------
 # HTTP primitives (stdlib only)
 # ---------------------------------------------------------------------------
+
 
 def _post(
     server_url: str,

@@ -9,6 +9,7 @@ Usage:
 
 Requires only Python 3 standard library.
 """
+
 from __future__ import annotations
 
 import argparse

@@ -33,9 +33,7 @@ class HealthData(BaseModel):
 @router.get('/health', response_model=ResponseEnvelope[HealthData])
 async def health_check(settings: SettingsDependency) -> ResponseEnvelope[HealthData]:
     ollama = await _check_ollama(settings.ollama_base_url, settings.embedding_model)
-    status: Literal['ok', 'degraded'] = (
-        'ok' if ollama.status == 'ok' else 'degraded'
-    )
+    status: Literal['ok', 'degraded'] = 'ok' if ollama.status == 'ok' else 'degraded'
     return ok(
         HealthData(
             status=status,
@@ -60,7 +58,7 @@ def _check_ollama_sync(base_url: str, model: str) -> OllamaHealth:
         with urlopen(request, timeout=2.0) as response:  # nosec B310
             raw = response.read()
         data = json.loads(raw.decode('utf-8'))
-    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError):
+    except HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError:
         return OllamaHealth(status='unreachable', base_url=base_url, model=model)
 
     models = data.get('models')

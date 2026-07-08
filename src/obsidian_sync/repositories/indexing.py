@@ -30,6 +30,7 @@ class VaultFileRecord:
     vectorize: bool
     status: str
     index_status: str
+    deleted: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,6 +193,7 @@ def _file_record(model: VaultFile) -> VaultFileRecord:
         vectorize=model.vectorize,
         status=model.status,
         index_status=model.index_status,
+        deleted=model.deleted,
     )
 
 

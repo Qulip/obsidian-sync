@@ -25,6 +25,8 @@ class SearchResultRecord:
     tags: list[str] | None
     content: str
     agent_hint: str | None
+    revision: int | None
+    updated_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,8 +66,8 @@ class SearchRepository:
         top_k: int,
     ) -> list[SearchResultRecord]:
         where_parts = [
-            'vault_id = :vault_id',
-            'embedding IS NOT NULL',
+            'kc.vault_id = :vault_id',
+            'kc.embedding IS NOT NULL',
         ]
         params: dict[str, Any] = {
             'vault_id': vault_id,
@@ -73,45 +75,50 @@ class SearchRepository:
             'top_k': top_k,
         }
         if filters.status:
-            where_parts.append('status = ANY(:status)')
+            where_parts.append('kc.status = ANY(:status)')
             params['status'] = [str(value) for value in filters.status]
         if filters.types:
-            where_parts.append('type = ANY(:types)')
+            where_parts.append('kc.type = ANY(:types)')
             params['types'] = [str(value) for value in filters.types]
         if filters.priority:
-            where_parts.append('priority = ANY(:priority)')
+            where_parts.append('kc.priority = ANY(:priority)')
             params['priority'] = [str(value) for value in filters.priority]
         if filters.visibility:
-            where_parts.append('visibility = ANY(:visibility)')
+            where_parts.append('kc.visibility = ANY(:visibility)')
             params['visibility'] = [str(value) for value in filters.visibility]
         if filters.project:
-            where_parts.append('project = :project')
+            where_parts.append('kc.project = :project')
             params['project'] = filters.project
         if filters.domain:
-            where_parts.append('domain = :domain')
+            where_parts.append('kc.domain = :domain')
             params['domain'] = filters.domain
         if filters.tags:
-            where_parts.append('tags && CAST(:tags AS text[])')
+            where_parts.append('kc.tags && CAST(:tags AS text[])')
             params['tags'] = list(filters.tags)
 
         query = f"""
             SELECT
-                1 - (embedding <=> CAST(:embedding AS vector)) AS score,
-                source_path,
-                title,
-                heading_path,
-                type AS document_type,
-                project,
-                domain,
-                priority,
-                status,
-                visibility,
-                tags,
-                content,
-                agent_hint
-            FROM {DB_SCHEMA}.knowledge_chunks
+                1 - (kc.embedding <=> CAST(:embedding AS vector)) AS score,
+                kc.source_path,
+                kc.title,
+                kc.heading_path,
+                kc.type AS document_type,
+                kc.project,
+                kc.domain,
+                kc.priority,
+                kc.status,
+                kc.visibility,
+                kc.tags,
+                kc.content,
+                kc.agent_hint,
+                vf.revision AS file_revision,
+                vf.updated_at AS file_updated_at
+            FROM {DB_SCHEMA}.knowledge_chunks AS kc
+            LEFT JOIN {DB_SCHEMA}.vault_files AS vf
+                ON vf.vault_id = kc.vault_id
+                AND vf.source_path = kc.source_path
             WHERE {' AND '.join(where_parts)}
-            ORDER BY embedding <=> CAST(:embedding AS vector)
+            ORDER BY kc.embedding <=> CAST(:embedding AS vector)
             LIMIT :top_k
             """  # nosec B608
         statement = text(query)
@@ -133,6 +140,12 @@ class SearchRepository:
                     tags=row['tags'],
                     content=str(row['content']),
                     agent_hint=row['agent_hint'],
+                    revision=(
+                        int(row['file_revision'])
+                        if row['file_revision'] is not None
+                        else None
+                    ),
+                    updated_at=row['file_updated_at'],
                 )
             )
         return records

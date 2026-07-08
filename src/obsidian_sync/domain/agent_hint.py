@@ -4,8 +4,8 @@ from obsidian_sync.domain.frontmatter import DocumentFrontmatter
 
 
 def build_agent_hint(frontmatter: DocumentFrontmatter, chunk: MarkdownChunk) -> str:
-    """Build a compact hint string for AI consumers from frontmatter and chunk metadata.
-    """
+    """Build a compact hint string for AI consumers from frontmatter and chunk
+    metadata."""
     parts: list[str] = [f'[{frontmatter.document_type.value}]']
 
     if frontmatter.priority is not DocumentPriority.MEDIUM:

@@ -7,6 +7,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Text,
     UniqueConstraint,
@@ -33,6 +34,8 @@ PRIORITIES = ('high', 'medium', 'low')
 VISIBILITIES = ('personal', 'company', 'confidential', 'public')
 INDEX_STATUSES = ('pending', 'indexed', 'failed', 'skipped', 'archived')
 INDEX_FAILURE_PHASES = ('frontmatter', 'chunking', 'embedding', 'database', 'unknown')
+SYNC_EVENT_TYPES = ('CREATE', 'UPDATE', 'DELETE', 'RESTORE')
+SYNC_CONFLICT_STATUSES = ('OPEN', 'RESOLVED', 'IGNORED')
 
 
 def _check_values(column_name: str, values: tuple[str, ...]) -> str:
@@ -62,6 +65,11 @@ class Vault(Base):
         Boolean,
         nullable=False,
         server_default='true',
+    )
+    current_revision: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        server_default='0',
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
@@ -110,6 +118,18 @@ class VaultFile(Base):
         server_default='pending',
     )
     index_error: Mapped[str | None] = mapped_column(Text)
+    revision: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        server_default='0',
+    )
+    deleted: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default='false',
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
+    updated_by_device_id: Mapped[str | None] = mapped_column(Text)
     last_synced_at: Mapped[datetime | None] = mapped_column(
         DateTime,
         server_default=func.now(),
@@ -184,6 +204,136 @@ class KnowledgeChunk(Base):
         nullable=False,
         server_default=func.now(),
     )
+
+
+class SyncDevice(Base):
+    __tablename__ = 'sync_devices'
+    __table_args__ = (
+        UniqueConstraint('vault_id', 'device_id', name='uq_sync_devices_vault_device'),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    vault_pk: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey(f'{DB_SCHEMA}.vaults.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    vault_id: Mapped[str] = mapped_column(Text, nullable=False)
+    device_id: Mapped[str] = mapped_column(Text, nullable=False)
+    device_name: Mapped[str | None] = mapped_column(Text)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_seen_revision: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        server_default='0',
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+    )
+
+
+class VaultFileVersion(Base):
+    __tablename__ = 'vault_file_versions'
+    __table_args__ = (
+        UniqueConstraint(
+            'vault_id',
+            'revision',
+            name='uq_vault_file_versions_vault_revision',
+        ),
+        Index(
+            'ix_vault_file_versions_vault_path_revision',
+            'vault_id',
+            'source_path',
+            'revision',
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    vault_pk: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey(f'{DB_SCHEMA}.vaults.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    vault_id: Mapped[str] = mapped_column(Text, nullable=False)
+    source_path: Mapped[str] = mapped_column(Text, nullable=False)
+    revision: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+    )
+    created_by_device_id: Mapped[str | None] = mapped_column(Text)
+
+
+class SyncEvent(Base):
+    __tablename__ = 'sync_events'
+    __table_args__ = (
+        UniqueConstraint('vault_id', 'revision', name='uq_sync_events_vault_revision'),
+        Index('ix_sync_events_vault_revision', 'vault_id', 'revision'),
+        CheckConstraint(
+            _check_values('event_type', SYNC_EVENT_TYPES),
+            name='event_type',
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    vault_pk: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey(f'{DB_SCHEMA}.vaults.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    vault_id: Mapped[str] = mapped_column(Text, nullable=False)
+    revision: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source_path: Mapped[str] = mapped_column(Text, nullable=False)
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(Text)
+    deleted: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default='false',
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+    )
+    created_by_device_id: Mapped[str | None] = mapped_column(Text)
+
+
+class SyncConflict(Base):
+    __tablename__ = 'sync_conflicts'
+    __table_args__ = (
+        CheckConstraint(
+            _check_values('status', SYNC_CONFLICT_STATUSES),
+            name='status',
+        ),
+        Index('ix_sync_conflicts_vault_status', 'vault_id', 'status'),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    vault_pk: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey(f'{DB_SCHEMA}.vaults.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    vault_id: Mapped[str] = mapped_column(Text, nullable=False)
+    source_path: Mapped[str] = mapped_column(Text, nullable=False)
+    server_revision: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    client_base_revision: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    device_id: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default='OPEN')
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class ArchivedVaultFile(Base):

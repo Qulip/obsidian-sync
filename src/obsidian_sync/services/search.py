@@ -107,6 +107,8 @@ class KnowledgeSearchService:
                     tags=record.tags or [],
                     content=record.content,
                     agent_hint=record.agent_hint,
+                    revision=record.revision,
+                    updated_at=record.updated_at,
                 )
                 for index, record in enumerate(records)
             ],

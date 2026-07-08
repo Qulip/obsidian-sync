@@ -8,6 +8,7 @@ dependencies = [
     "alembic>=1.18.4",
     "asyncpg>=0.31.0",
     "fastapi>=0.138.0",
+    "httpx>=0.27",
     "mcp>=1.28.1",
     "pydantic-settings>=2.14.2",
     "sqlalchemy[asyncio]>=2.0.51",
@@ -16,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 obsidian-sync = "obsidian_sync.cli:main"
+obsidian-sync-agent = "obsidian_sync.sync_agent.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -62,5 +64,11 @@ files = ["src", "main.py"]
 [dependency-groups]
 dev = [
     "mypy>=2.1.0",
+    "pytest>=8",
+    "pytest-asyncio>=0.25",
     "ruff>=0.15.19",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

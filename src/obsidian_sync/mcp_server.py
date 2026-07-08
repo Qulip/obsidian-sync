@@ -19,6 +19,11 @@ from obsidian_sync.repositories.search import SearchRepository
 from obsidian_sync.schemas.indexing import ReindexResult, ReindexVaultRequest
 from obsidian_sync.schemas.mcp import McpKnowledgeSearchRequest, McpSyncFileRequest
 from obsidian_sync.schemas.search import KnowledgeSearchResponse
+from obsidian_sync.schemas.sync import (
+    FileContentData,
+    McpGetNoteRequest,
+    McpSyncStatusData,
+)
 from obsidian_sync.schemas.vaults import (
     ListVaultsData,
     SyncFileData,
@@ -26,6 +31,7 @@ from obsidian_sync.schemas.vaults import (
     SyncManifestRequest,
 )
 from obsidian_sync.services.indexing import ReindexService
+from obsidian_sync.services.revision_sync import RevisionSyncService
 from obsidian_sync.services.search import KnowledgeSearchService
 from obsidian_sync.services.storage import VaultStorage
 from obsidian_sync.services.vault_sync import VaultSyncService
@@ -138,6 +144,40 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
                 )
             )
 
+    @mcp.tool(name='get_note_mcp_vaults_note_post')
+    async def get_note(
+        payload: McpGetNoteRequest,
+        ctx: Context[Any, Any, Request],
+    ) -> dict[str, Any]:
+        """Read the latest content of a note with revision and content hash."""
+        async with _session(app) as session:
+            settings = _settings(app)
+            await _metadata(ctx, session)
+            service = _revision_sync_service(session=session, settings=settings)
+            return _dump(ok(await service.get_file(payload.vault_id, payload.path)))
+
+    @mcp.tool(name='get_sync_status_mcp_vaults__vault_id__sync_status_get')
+    async def get_sync_status(
+        vault_id: str,
+        ctx: Context[Any, Any, Request],
+    ) -> dict[str, Any]:
+        """Report the vault's server revision, open conflicts, and pending jobs."""
+        async with _session(app) as session:
+            settings = _settings(app)
+            await _metadata(ctx, session)
+            service = _revision_sync_service(session=session, settings=settings)
+            status = await service.get_status(vault_id, device_id=None)
+            return _dump(
+                ok(
+                    McpSyncStatusData(
+                        vault_id=status.vault_id,
+                        server_revision=status.server_revision,
+                        open_conflicts=status.open_conflicts,
+                        pending_vectorizing_jobs=status.pending_vectorizing_jobs,
+                    )
+                )
+            )
+
     return mcp
 
 
@@ -232,6 +272,18 @@ def _vault_service(
     )
 
 
+def _revision_sync_service(
+    *,
+    session: AsyncSession,
+    settings: Settings,
+) -> RevisionSyncService:
+    return RevisionSyncService(
+        session,
+        VaultStorage(settings.vault_storage_root, settings.vault_archive_root),
+        settings,
+    )
+
+
 def _reindex_service(
     *,
     session: AsyncSession,
@@ -255,6 +307,8 @@ def _dump(
         | SyncFileData
         | ReindexResult
         | KnowledgeSearchResponse
+        | FileContentData
+        | McpSyncStatusData
     ],
 ) -> dict[str, Any]:
     return response.model_dump(mode='json')

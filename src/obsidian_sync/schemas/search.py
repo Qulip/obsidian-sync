@@ -48,6 +48,8 @@ class KnowledgeSearchResult(BaseModel):
     tags: list[str]
     content: str
     agent_hint: str | None
+    revision: int | None = None
+    updated_at: datetime | None = None
 
 
 class KnowledgeSearchResponse(BaseModel):

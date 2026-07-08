@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     ollama_timeout_seconds: float = 30.0
     vault_storage_root: Path = Path('vaults')
     vault_archive_root: Path = Path('archives')
+    sync_max_content_bytes: int = 10 * 1024 * 1024
+    sync_changes_default_limit: int = 500
+    sync_soft_delete_retention_days: int = 7
     database_url: str | None = Field(
         default=None,
         validation_alias=AliasChoices(

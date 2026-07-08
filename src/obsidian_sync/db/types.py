@@ -1,3 +1,5 @@
+from sqlalchemy.engine.interfaces import Dialect
+from sqlalchemy.sql.type_api import _BindProcessorType, _ResultProcessorType
 from sqlalchemy.types import UserDefinedType
 
 
@@ -10,7 +12,7 @@ class Vector(UserDefinedType[object]):
     def get_col_spec(self, **_kw: object) -> str:
         return f'vector({self.dimensions})'
 
-    def bind_processor(self, dialect: object) -> object:
+    def bind_processor(self, dialect: Dialect) -> _BindProcessorType[object]:
         def process(value: object) -> object:
             if value is None:
                 return None
@@ -20,7 +22,11 @@ class Vector(UserDefinedType[object]):
 
         return process
 
-    def result_processor(self, dialect: object, coltype: object) -> object:
+    def result_processor(
+        self,
+        dialect: Dialect,
+        coltype: object,
+    ) -> _ResultProcessorType[object]:
         def process(value: object) -> object:
             if value is None:
                 return None

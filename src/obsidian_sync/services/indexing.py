@@ -11,6 +11,7 @@ from obsidian_sync.domain.errors import DomainValidationError
 from obsidian_sync.domain.frontmatter import parse_frontmatter
 from obsidian_sync.domain.hashing import sha256_text
 from obsidian_sync.domain.paths import normalize_source_path, safe_vault_destination
+from obsidian_sync.domain.sync_rules import is_vectorizable_path
 from obsidian_sync.repositories.indexing import (
     ChunkWrite,
     IndexingRepository,
@@ -111,7 +112,11 @@ class ReindexService:
         markdown: str,
         result: ReindexResult,
     ) -> None:
-        if not record.vectorize:
+        if (
+            not record.vectorize
+            or record.deleted
+            or not is_vectorizable_path(record.source_path)
+        ):
             deleted = await self.repository.delete_chunks(
                 vault_id=record.vault_id,
                 source_path=record.source_path,

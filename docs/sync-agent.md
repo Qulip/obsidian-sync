@@ -106,6 +106,14 @@ Manifest는 에이전트가 마지막으로 동기화한 파일 상태를 로컬
       "content_hash": "9b8c7d6e5f4a...",
       "last_synced_at": "2026-07-07T12:01:00+00:00"
     }
+  },
+  "conflicts": {
+    "Daily/2026-07-07.md": {
+      "server_revision": 17,
+      "server_content_hash": "a1b2c3d4e5f6...",
+      "local_content_hash": "9b8c7d6e5f4a...",
+      "server_deleted": false
+    }
   }
 }
 ```
@@ -113,6 +121,10 @@ Manifest는 에이전트가 마지막으로 동기화한 파일 상태를 로컬
 - `last_sync_cursor`: 마지막으로 처리한 vault revision 번호
 - `files[path].server_revision`: 해당 파일의 마지막 동기화 revision (PUT 시 `base_revision`으로 사용)
 - `content_hash`: 64자리 hex SHA-256 (서버와 로컬 변경 감지에 사용)
+- `conflicts[path]`: 수동 해결 전의 서버 revision과 로컬 해시. 원본 파일이
+  이 로컬 해시에서 바뀌면, 다음 push는 conflict 당시 서버 revision을
+  `base_revision`으로 사용합니다. `server_deleted=true`이면 로컬 파일 삭제를
+  서버 삭제 수락으로 처리합니다.
 
 Manifest 파일은 atomic write로 저장됩니다 (`.tmp` → rename).
 
@@ -156,6 +168,7 @@ Manifest 파일은 atomic write로 저장됩니다 (`.tmp` → rename).
 4. Push
    ├─ new:      PUT base_revision=0
    ├─ modified: PUT base_revision={manifest의 server_revision}
+   │             (resolved conflict는 conflict.server_revision 사용)
    └─ deleted:  DELETE base_revision={manifest의 server_revision}
        |
 5. Pull (두 번째, cursor 전진)
@@ -217,6 +230,13 @@ conflict 파일은 `(경로, 서버 revision)` 조합당 하나만 생성됩니�
 - conflict 파일을 새로 쓰기 전에, 같은 device·같은 `- Server revision:` 값을 가진 기존 conflict 파일이 있으면 새로 만들지 않고 기존 파일을 재사용합니다.
 
 따라서 서버 revision이 그대로인 채 divergence가 해소되지 않은 상태로 sync를 반복 실행해도 conflict 파일이 계속 누적되지 않습니다. 서버가 다시 갱신되어 새 revision이 되면 그때 새 conflict 파일이 생성됩니다. 서버 revision을 자동으로 채택하는 등의 자동 해결은 수행하지 않습니다.
+
+에이전트는 conflict 당시의 로컬 파일 해시도 manifest에 저장합니다. 원본
+파일이 그대로라면 unresolved 상태로 보고 push하지 않습니다. 사용자가 원본
+파일을 편집해 해결하면 다음 sync에서 conflict 당시 서버 revision을
+`base_revision`으로 사용해 resolved 내용을 서버에 업로드합니다.
+서버 삭제 conflict에서 사용자가 원본 파일을 삭제하면 서버 삭제를 수락한
+것으로 보고 로컬 manifest만 정리합니다.
 
 ### 수동 해결 방법
 

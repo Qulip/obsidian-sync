@@ -127,7 +127,7 @@ curl -sS -X POST "http://localhost:8000/vaults/personal-main/reindex/file" \
 
 ## Conflict 파일은 인덱싱되지 않음
 
-`*.conflict.*.md` 및 `*.sync-conflict*.md` 패턴에 해당하는 파일은 `is_vectorizable_path()`에서 False를 반환하므로 절대 인덱싱되지 않습니다. PUT 시도 시 서버도 이를 rejected하지 않지만, `vectorize=false`, `index_status='skipped'`로 저장됩니다.
+`*.conflict.*.md` 및 `*.sync-conflict*.md` 패턴에 해당하는 파일은 `is_vectorizable_path()`에서 False를 반환하므로 절대 인덱싱되지 않습니다. sync-agent는 이 파일을 업로드하지 않으며, sync API에 직접 PUT해도 제외 경로로 검증되어 400 응답이 반환됩니다.
 
 ---
 

@@ -448,6 +448,10 @@ Notes/JPA.conflict.macbook-pro.20260707-121500.md
 2. `.conflict` 파일을 삭제합니다.
 3. 다시 `obsidian-sync-agent sync`를 실행합니다.
 
+다음 sync는 conflict 당시 서버 revision을 기준으로 정리된 원본 파일을
+업로드합니다. 원본 파일을 바꾸지 않은 상태에서는 unresolved conflict로 보고
+다시 push하지 않습니다.
+
 `.conflict` 파일은 동기화·벡터화 대상에서 제외되므로 서버로 올라가거나 검색에
 포함되지 않습니다.
 
@@ -747,37 +751,19 @@ uv sync --dev
 uv run ruff check .
 uv run ruff format .
 uv run mypy
-uv run python -m unittest discover -v
+uv run pytest
 ```
 
-Focused checks used for the current implementation:
+For narrower work, run the smallest relevant pytest target first, then the full
+suite before handoff when DB/API behavior changed:
 
 ```bash
-uv run ruff check \
-  src/obsidian_sync/core/auth.py \
-  src/obsidian_sync/api/router.py \
-  src/obsidian_sync/api/routes/health.py \
-  src/obsidian_sync/repositories/tokens.py \
-  src/obsidian_sync/services/storage.py \
-  src/obsidian_sync/services/vault_sync.py \
-  alembic/versions/20260701_0003_add_chunks_embedding_hnsw.py \
-  tests
-
-uv run mypy \
-  src/obsidian_sync/core/auth.py \
-  src/obsidian_sync/api/router.py \
-  src/obsidian_sync/api/routes/health.py \
-  src/obsidian_sync/repositories/tokens.py \
-  src/obsidian_sync/services/storage.py \
-  src/obsidian_sync/services/vault_sync.py \
-  tests
-
-uv run python -m unittest discover -v
+uv run pytest tests/sync_agent
+uv run pytest tests/test_sync_api.py
 ```
 
-Known current caveat: repository-wide `ruff check .` and `mypy` may include
-unrelated script/type issues outside the core API path. Prefer checking changed
-files when working on a narrow patch, then clean up global issues separately.
+The full pytest suite expects local PostgreSQL access. Pure sync-agent and
+domain tests do not require PostgreSQL and can be run independently.
 
 ## E2E Smoke Test Outline
 

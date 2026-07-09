@@ -1,0 +1,2 @@
+No runtime QA resources required cleanup.
+Retained required evidence binary: .omo/evidence/obsidian-sync-agent.

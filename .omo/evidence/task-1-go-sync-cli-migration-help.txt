@@ -1,0 +1,30 @@
+usage: obsidian-sync-agent [-h] {sync,status} ...
+
+Sync a local Obsidian vault with the obsidian-sync server.
+
+positional arguments:
+  {sync,status}
+    sync         run a full sync cycle
+    status       show server and local sync status
+
+options:
+  -h, --help     show this help message and exit
+
+--- sync --help ---
+usage: obsidian-sync-agent sync [-h] [--vault-root VAULT_ROOT]
+                                [--vault-id VAULT_ID] [--server SERVER]
+                                [--device-id DEVICE_ID] [--verbose]
+                                [--dry-run] [--require-obsidian-refresh]
+
+options:
+  -h, --help            show this help message and exit
+  --vault-root VAULT_ROOT
+                        local vault directory
+  --vault-id VAULT_ID   server vault id
+  --server SERVER       server base url
+  --device-id DEVICE_ID
+                        override the device id
+  --verbose             enable debug logging
+  --dry-run             print planned actions without writing or pushing
+  --require-obsidian-refresh
+                        exit non-zero if the Obsidian refresh step fails

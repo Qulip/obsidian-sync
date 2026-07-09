@@ -1,0 +1,1 @@
+ERROR configuration error: server base url is required (use --server, OBSIDIAN_SYNC_AGENT_SERVER, or config file server_base_url)

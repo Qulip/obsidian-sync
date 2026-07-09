@@ -1,0 +1,13 @@
+TASK 3 manual QA
+pwd=/Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+branch=work/go-sync-cli-migration
+happy_tmp_vault=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.SCC16zTsxX
+happy_command=OBSIDIAN_SYNC_AGENT_SERVER=http://env.example OBSIDIAN_SYNC_AGENT_VAULT_ID=env-vault OBSIDIAN_SYNC_AGENT_DEVICE_ID=env-device .omo/evidence/obsidian-sync-agent status --vault-root "/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.SCC16zTsxX" --server http://127.0.0.1:9 --vault-id cli-vault --device-id cli-device
+sync failed: get status from http://127.0.0.1:9 for vault cli-vault device cli-device: Get "http://127.0.0.1:9/api/v1/sync/vaults/cli-vault/status?device_id=cli-device": dial tcp 127.0.0.1:9: connect: connection refused
+happy_exit_code=2
+happy_result=PASS network failure occurred after resolved CLI server/vault/device values were used
+failure_tmp_vault=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.CWn4i9uATU
+failure_command=env -i .omo/evidence/obsidian-sync-agent status --vault-root "/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.CWn4i9uATU"
+configuration error: server base url is required (use --server, OBSIDIAN_SYNC_AGENT_SERVER, or config file server_base_url)
+failure_exit_code=2
+failure_result=PASS missing config exits 2

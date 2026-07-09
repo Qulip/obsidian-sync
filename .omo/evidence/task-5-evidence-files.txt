@@ -1,0 +1,17 @@
+.omo/evidence/task-5-cleanup-receipt.txt
+.omo/evidence/task-5-client-diff.txt
+.omo/evidence/task-5-diff-stat.txt
+.omo/evidence/task-5-evidence-files.txt
+.omo/evidence/task-5-git-status.txt
+.omo/evidence/task-5-go-sync-cli-migration-client.exitcode
+.omo/evidence/task-5-go-sync-cli-migration-client.txt
+.omo/evidence/task-5-go-sync-cli-migration-conflict.exitcode
+.omo/evidence/task-5-go-sync-cli-migration-conflict.txt
+.omo/evidence/task-5-go-test.exitcode
+.omo/evidence/task-5-go-test.txt
+.omo/evidence/task-5-go-vet.exitcode
+.omo/evidence/task-5-go-vet.txt
+.omo/evidence/task-5-loc.txt
+.omo/evidence/task-5-owned-files.txt
+.omo/evidence/task-5-red.exitcode
+.omo/evidence/task-5-red.txt

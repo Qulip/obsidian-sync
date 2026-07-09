@@ -1,0 +1,28 @@
+Task: Add the Go module and folder skeleton without behavior.
+
+Baseline:
+- go test ./... before go.mod: exit 127, artifact .omo/evidence/task-2-baseline-go-test.txt
+- go build ./cmd/obsidian-sync-agent before command skeleton: exit 127, artifact .omo/evidence/task-2-baseline-go-build.txt
+
+Verification:
+- go test ./...: exit 0, artifact .omo/evidence/task-2-go-test.txt
+- go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent: exit 0, artifact .omo/evidence/task-2-go-build.txt
+- .omo/evidence/obsidian-sync-agent --help > .omo/evidence/task-2-go-sync-cli-migration-help.txt: exit 0
+- .omo/evidence/obsidian-sync-agent unknown > .omo/evidence/task-2-go-sync-cli-migration-unknown-command.txt 2>&1; echo $?: printed 2
+- go vet ./...: exit 0, artifact .omo/evidence/task-2-go-vet.txt
+- git diff --check: exit 0, artifact .omo/evidence/task-2-diff-check.txt
+
+Adversarial classes:
+- dirty_worktree: probed with git status --short, artifact .omo/evidence/task-2-dirty-worktree.txt; unrelated pre-existing untracked .omo/ was present before edits.
+- misleading_success_output: probed by saving actual test/build/help/unknown-command output artifacts and recording exit codes above.
+- stale_state: probed with pwd, artifact .omo/evidence/task-2-stale-state-pwd.txt; commands ran from /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree.
+- malformed input: probed with unknown command; exit code 2 and artifact identifies unknown command.
+- prompt injection: not applicable; this task does not process untrusted external text.
+- cancel/resume: not applicable; no resumable or long-running product flow was introduced.
+- hung or long commands: not applicable to product behavior; build/test commands completed.
+- flaky tests: not applicable; no tests with timing, randomness, or concurrency were added.
+- repeated interruptions: not applicable; no interruptible product operation was introduced.
+
+Cleanup:
+- No server, background process, container, port, or temporary QA directory was started.
+- Built binary intentionally retained at .omo/evidence/obsidian-sync-agent as required evidence.

@@ -1,0 +1,21 @@
+# github.com/Qulip/obsidian-sync/internal/syncagent/config [github.com/Qulip/obsidian-sync/internal/syncagent/config.test]
+internal/syncagent/config/config_test.go:30:14: undefined: Load
+internal/syncagent/config/config_test.go:30:19: undefined: CLIOverrides
+internal/syncagent/config/config_test.go:69:11: undefined: ServerEnv
+internal/syncagent/config/config_test.go:70:11: undefined: VaultIDEnv
+internal/syncagent/config/config_test.go:71:11: undefined: DeviceIDEnv
+internal/syncagent/config/config_test.go:72:11: undefined: DeviceNameEnv
+internal/syncagent/config/config_test.go:73:11: undefined: TokenEnv
+internal/syncagent/config/config_test.go:74:11: undefined: ObsidianKeyEnv
+internal/syncagent/config/config_test.go:77:14: undefined: Load
+internal/syncagent/config/config_test.go:77:19: undefined: CLIOverrides
+internal/syncagent/config/config_test.go:77:19: too many errors
+FAIL	github.com/Qulip/obsidian-sync/internal/syncagent/config [build failed]
+# github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent [github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent.test]
+cmd/obsidian-sync-agent/main_test.go:22:10: undefined: run
+cmd/obsidian-sync-agent/main_test.go:25:13: undefined: exitError
+cmd/obsidian-sync-agent/main_test.go:26:45: undefined: exitError
+cmd/obsidian-sync-agent/main_test.go:63:10: undefined: run
+cmd/obsidian-sync-agent/main_test.go:72:13: undefined: exitOK
+FAIL	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent [build failed]
+FAIL

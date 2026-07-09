@@ -144,7 +144,7 @@ Your next move: run `$start-work` or ask for a high-accuracy plan review first. 
   QA scenarios (name the exact tool + invocation): happy: `go test ./internal/syncagent/client -run TestClientPutDeleteAndStatus -v > .omo/evidence/task-5-go-sync-cli-migration-client.txt`, PASS if tests verify method/path/body/header; failure: `go test ./internal/syncagent/client -run TestClientSyncConflict -v`, PASS if conflict details are preserved, evidence same file.
   Commit: Y | `feat(sync-agent): port sync api client to go`
 
-- [ ] 6. Port conflict file generation and optional Obsidian refresh.
+- [x] 6. Port conflict file generation and optional Obsidian refresh.
   What to do / Must NOT do: Implement `internal/syncagent/conflict` and `internal/syncagent/obsidian`. Preserve conflict filename format, content headings, duplicate prevention by path/device/server revision, server/local deleted placeholders, Obsidian health probe, optional reload command, API key env usage, TLS verify option, and require-refresh outcome. Do not make Obsidian required by default.
   Parallelization: Wave 2 | Blocked by: 1, 2 | Blocks: 7, 8
   References (executor has NO interview context - be exhaustive): `src/obsidian_sync/sync_agent/conflict.py`; `src/obsidian_sync/sync_agent/obsidian.py`; `tests/sync_agent/test_conflict.py`; `docs/sync-agent.md:220-330`; `README.md:466`.

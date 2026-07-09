@@ -1,0 +1,113 @@
+Task 6 review and manual QA matrix
+Worktree: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+Date: 2026-07-09
+Role: scoped reviewer/evidence worker
+
+Scope reviewed
+- /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/internal/syncagent/conflict/conflict.go
+- /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/internal/syncagent/conflict/conflict_test.go
+- /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/internal/syncagent/obsidian/obsidian.go
+- /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/internal/syncagent/obsidian/obsidian_test.go
+- /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/task-6-red.txt
+- /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/task-6-go-sync-cli-migration-conflict.txt
+- /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/task-6-go-sync-cli-migration-obsidian.txt
+
+Code quality review
+PASS: no blocking findings in the Task 6 scoped files.
+- internal/syncagent/conflict/conflict.go:31-35 builds deterministic conflict filenames from the source stem, device id, and timestamp.
+- internal/syncagent/conflict/conflict.go:37-69 writes the conflict artifact, reuses an existing artifact for the same device/server revision, creates parent directories, and uses atomic replacement.
+- internal/syncagent/conflict/conflict.go:71-87 cleans the vault-relative path and rejects path escape attempts before joining with the absolute vault root.
+- internal/syncagent/conflict/conflict.go:134-153 writes the expected metadata plus Local Version and Server Version sections.
+- internal/syncagent/conflict/conflict_test.go:25-75 covers the conflict-file happy path and section ordering.
+- internal/syncagent/conflict/conflict_test.go:77-124 covers duplicate reuse for the same device/server revision.
+- internal/syncagent/conflict/conflict_test.go:126-157 covers deleted-file placeholder content.
+- internal/syncagent/obsidian/obsidian.go:37-42 maps any failed required refresh result to exit code 3.
+- internal/syncagent/obsidian/obsidian.go:44-77 handles disabled integration, health probing, optional reload, API key fallback, and authenticated reload gating.
+- internal/syncagent/obsidian/obsidian.go:93-102 uses stdlib net/http with a timeout and TLS verification switch.
+- internal/syncagent/obsidian/obsidian.go:145-176 checks HTTP status, decodes JSON when expected, drains bodies, and does not log secrets.
+- internal/syncagent/obsidian/obsidian_test.go:65-88 covers the reload-without-API-key failure path and verifies it does not proceed beyond the health endpoint.
+
+Programming review
+PASS.
+- Standard library only: go.mod contains only module github.com/Qulip/obsidian-sync and go 1.23; `go list -m all` printed only github.com/Qulip/obsidian-sync.
+- No unnecessary dependencies: no third-party module additions are present for Task 6.
+- No secret leakage found: API keys are read from Config/API env and sent as Authorization headers; tests use literal fake values only and do not print authorization tokens.
+- No broad abstractions found: Task 6 adds small package-local functions and structs for conflict files and Obsidian refresh behavior; no framework, interface, or generic abstraction layer was introduced.
+- File sizes are within the 250 pure-LOC review ceiling: conflict.go 164, conflict_test.go 132, obsidian.go 161, obsidian_test.go 114.
+
+remove-ai-slops / overfit coverage
+PASS: no blocking slop findings.
+- Hardcoded fake behavior: no production fake behavior found. Test HTTP servers are scoped to obsidian_test.go and assert concrete request paths/methods.
+- Brittle timestamp tests: conflict tests inject fixed time.Time values; production falls back to time.Now().Local() only when Request.Now is zero.
+- Mirrored implementation tests: tests assert observable artifacts, messages, paths, request methods, and file contents rather than duplicating helper internals.
+- Unnecessary abstraction: no single-use public interfaces or speculative config layers found.
+- Hidden network behavior: production network behavior is explicit in Refresh via the configured BaseURL/http.Client; tests use httptest.Server, not external network calls.
+- Log-only success claims: success is asserted with return values, file reads, request observations, and test process exit codes; no log-only pass condition found.
+
+Manual QA matrix
+1. Conflict file happy path
+   Artifact path reviewed: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/internal/syncagent/conflict/conflict_test.go
+   Command: go test ./internal/syncagent/conflict -run TestWriteConflictFile -v
+   Expected process exit code: 0
+   Observed process exit code: 0
+   Expected artifact path from test fixture: <tempdir>/notes/JPA.conflict.laptop.20260707-123045.md
+   Expected observable result: conflict file contains # Sync Conflict, path/device/revision metadata, Created at 2026-07-07T12:30:45Z, Local Version before Server Version, local body, server body, and deleted placeholders in the placeholder case.
+   Observed result: PASS; uncached rerun printed PASS for writesExpectedSections, reusesExistingFile, and writesDeletedPlaceholders.
+
+2. Reload without API key failure path
+   Artifact path reviewed: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/internal/syncagent/obsidian/obsidian_test.go
+   Command: go test ./internal/syncagent/obsidian -run TestReloadCommandWithoutAPIKey -v
+   Expected process exit code: 0
+   Observed process exit code: 0
+   Expected product exit code when the failed refresh is required: 3, from Result.RequireRefreshExitCode(true) in internal/syncagent/obsidian/obsidian.go:37-42.
+   Expected observable result: Refresh returns OK=false with message "obsidian reload requires an authenticated API key" after only GET / health returns authenticated=false; no /commands reload request is made.
+   Observed result: PASS; uncached rerun logged "reload without API key returned not ok: obsidian reload requires an authenticated API key".
+
+Dirty worktree scope
+Task 6 owned files:
+- internal/syncagent/conflict/conflict.go
+- internal/syncagent/conflict/conflict_test.go
+- internal/syncagent/obsidian/obsidian.go
+- internal/syncagent/obsidian/obsidian_test.go
+- .omo/evidence/task-6-red.txt
+- .omo/evidence/task-6-go-sync-cli-migration-conflict.txt
+- .omo/evidence/task-6-go-sync-cli-migration-obsidian.txt
+- .omo/evidence/task-6-review-and-qa-matrix.txt
+- .omo/evidence/task-6-diff-scope.txt
+
+Unrelated dirty file:
+- tests/sync_agent/test_contract.py is Task 1 migration contract-test scope/unrelated to Task 6. It was inspected only to document scope and was not removed or edited.
+
+stale_state evidence
+- `.codegraph/` check: absent; direct source inspection used.
+- Existing Task 6 red evidence inspected: .omo/evidence/task-6-red.txt showed the pre-implementation undefined-symbol failures for conflict and obsidian packages.
+- Existing Task 6 green evidence inspected: .omo/evidence/task-6-go-sync-cli-migration-conflict.txt and .omo/evidence/task-6-go-sync-cli-migration-obsidian.txt showed prior PASS outputs.
+- Current source rerun: `go test -count=1 ./internal/syncagent/conflict ./internal/syncagent/obsidian` exited 0.
+- Current vet rerun: `go vet ./internal/syncagent/conflict ./internal/syncagent/obsidian` exited 0.
+
+misleading_success_output evidence
+- Initial targeted reruns of `go test ./internal/syncagent/conflict -run TestWriteConflictFile -v` and `go test ./internal/syncagent/obsidian -run TestReloadCommandWithoutAPIKey -v` exited 0 but reported cached package output.
+- To avoid relying on cached success output, I ran `go clean -testcache && go test ./internal/syncagent/conflict -run TestWriteConflictFile -v`; exit code 0, non-cached package time 0.480s.
+- I also ran `go clean -testcache && go test ./internal/syncagent/obsidian -run TestReloadCommandWithoutAPIKey -v`; exit code 0, non-cached package time 0.847s.
+
+Verify commands run
+- `go test -count=1 ./internal/syncagent/conflict ./internal/syncagent/obsidian`: exit code 0.
+- `go vet ./internal/syncagent/conflict ./internal/syncagent/obsidian`: exit code 0.
+- `go test ./internal/syncagent/conflict -run TestWriteConflictFile -v`: exit code 0.
+- `go test ./internal/syncagent/obsidian -run TestReloadCommandWithoutAPIKey -v`: exit code 0.
+- Extra stale-cache check: `go clean -testcache && go test ./internal/syncagent/conflict -run TestWriteConflictFile -v`: exit code 0.
+- Extra stale-cache check: `go clean -testcache && go test ./internal/syncagent/obsidian -run TestReloadCommandWithoutAPIKey -v`: exit code 0.
+- `go list -m all`: exit code 0; only local module printed.
+- `git diff --name-only -- '*.py'`: exit code 0; no tracked Python diff printed.
+- `git status --porcelain -- '*.py'`: exit code 0; printed `?? tests/sync_agent/test_contract.py`.
+
+Cleanup receipt
+- Product code was not edited in this review pass.
+- No checkboxes were marked.
+- No unrelated files were removed.
+- Only the requested evidence artifacts were written: .omo/evidence/task-6-review-and-qa-matrix.txt and .omo/evidence/task-6-diff-scope.txt.
+- Test cache was cleared only to rerun targeted tests without cached success output.
+
+Residual risk / non-blocking gaps
+- No blocking findings remain for the Task 6 scoped review.
+- There are no dedicated Task 6 tests for malformed conflict path input, invalid Obsidian base URL, or direct TLS transport behavior; this is a coverage note, not a blocker for the requested Task 6 evidence gate.

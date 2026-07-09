@@ -1,0 +1,126 @@
+Task 4 fix review and QA matrix
+Date: 2026-07-09
+Worktree: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+
+Scope
+- Changed Task 4 files:
+  - internal/syncagent/manifest/manifest.go
+  - internal/syncagent/manifest/manifest_test.go
+  - .omo/evidence/task-4-fix-red.txt
+  - .omo/evidence/task-4-review-and-qa-matrix.txt
+- Did not edit later-task packages outside manifest, plan checkboxes, or ledger.
+- Dirty worktree note: the Go migration files are currently untracked in this worktree
+  alongside later-task files. `git status --short` showed:
+  - ?? .omo/
+  - ?? cmd/
+  - ?? go.mod
+  - ?? internal/
+  - ?? tests/sync_agent/test_contract.py
+  This receipt scopes my writes to the files listed above.
+
+Root cause
+- manifest.Load trimmed the file and returned New() whenever the first non-space byte
+  was not `{`. That shortcut accepted corrupt text such as `not-json` as an empty
+  manifest without first parsing JSON.
+
+Fix
+- manifest.Load now parses the trimmed manifest bytes into json.RawMessage first.
+- Invalid JSON now returns the json.Unmarshal error.
+- Missing manifest still returns New().
+- Empty file behavior is unchanged.
+- Valid non-object JSON, such as `[]`, still returns New() because existing Go tests
+  pinned that compatibility behavior. Distinction: valid JSON but wrong top-level
+  type is tolerated as empty; corrupt/non-JSON text is rejected.
+
+RED evidence
+- Command:
+  `set -o pipefail; go test -count=1 ./internal/syncagent/manifest 2>&1 | tee .omo/evidence/task-4-fix-red.txt`
+- Exit code: 1
+- Evidence path: .omo/evidence/task-4-fix-red.txt
+- Failing assertion: TestLoad_returnsError_whenManifestIsCorruptJSON reported
+  `Load returned nil error`.
+
+GREEN / required verification
+- Command:
+  `go test -count=1 ./internal/syncagent/manifest`
+  Exit code: 0
+- Command:
+  `go test -count=1 ./internal/syncagent/manifest ./internal/syncagent/atomicfile ./internal/syncagent/rules ./internal/syncagent/scanner`
+  Exit code: 0
+  Output summary:
+  - ok github.com/Qulip/obsidian-sync/internal/syncagent/manifest
+  - ok github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile
+  - ok github.com/Qulip/obsidian-sync/internal/syncagent/rules
+  - ok github.com/Qulip/obsidian-sync/internal/syncagent/scanner
+- Command:
+  `go vet ./internal/syncagent/manifest ./internal/syncagent/atomicfile ./internal/syncagent/rules ./internal/syncagent/scanner`
+  Exit code: 0
+
+Manual QA matrix
+- Scenario: malformed manifest text `not-json`.
+  Surface: package test for manifest.Load.
+  Command: `go test -count=1 ./internal/syncagent/manifest -run TestLoad_returnsError_whenManifestIsCorruptJSON`
+  Exit code: 0
+  Expected/observed: Load returns a non-nil error instead of empty success.
+- Scenario: scanner-only notes/a.md.
+  Surface: scanner package test with temp vault containing notes/a.md plus ignored files.
+  Command: `go test -count=1 ./internal/syncagent/scanner -run TestScanVault_hashesOnlySyncableMarkdownFiles`
+  Exit code: 0
+  Expected/observed: only `notes/a.md` is scanned and hashed.
+- Scenario: no .tmp leftovers after atomic write.
+  Surface: atomicfile package test with temp output directory.
+  Command: `go test -count=1 ./internal/syncagent/atomicfile -run TestWriteBytes_createsTargetAndLeavesNoTempFiles`
+  Exit code: 0
+  Expected/observed: target file exists and no `.tmp-` files remain.
+
+Code quality review
+- Minimality: one production behavior change and one regression test.
+- Boundary parsing: JSON is parsed once at the file boundary before compatibility handling.
+- Error handling: invalid JSON returns the decoder error; no panic or swallowed error added.
+- Size check: manifest.go is 82 pure LOC; manifest_test.go is 123 pure LOC.
+- Formatting: gofmt run on both changed Go files.
+
+Overfit / slop risk review
+- Not overfit to a single syntax error: the fix rejects all invalid JSON that json.Unmarshal
+  rejects, including non-JSON text and malformed object text.
+- No broad cleanup, new abstraction, new helper, or unrelated formatting was added.
+- No debug prints, temporary debug markers, sleeps, timing assumptions, or environment-dependent
+  behavior were added.
+- Existing valid non-object JSON test remains, preventing accidental behavior drift.
+
+Adversarial classes covered
+- malformed input/path cases:
+  - missing manifest path: existing test expects empty manifest.
+  - valid non-object JSON `[]`: existing test expects empty manifest.
+  - corrupt non-JSON `not-json`: new test expects error.
+  - malformed object-like JSON `{not-json`: covered by the same parse-first production path
+    because json.Unmarshal runs before top-level object handling.
+- stale_state:
+  - Required tests were run with `-count=1` to bypass Go test cache.
+  - Evidence notes untracked tree state explicitly.
+- misleading_success_output:
+  - RED was rerun with `set -o pipefail` so tee did not mask the failing exit code.
+  - Final required tests and vet were run as direct commands and exited 0.
+- flaky filesystem tests:
+  - Tests use t.TempDir() and local temp files.
+  - No sleeps, polling, shared paths, or wall-clock assertions are involved.
+
+Debugging hypotheses with runtime evidence
+- H1: corrupt non-object text is swallowed by the first-byte shortcut.
+  Evidence: RED test failed with `Load returned nil error`; fixed by parse-first logic.
+- H2: valid non-object JSON might regress if all non-object inputs are rejected.
+  Evidence: required manifest package tests passed, including existing `[]` compatibility test.
+- H3: scanner/atomicfile behavior might be affected by manifest changes through shared Task 4
+  package set.
+  Evidence: required package test command passed for manifest, atomicfile, rules, and scanner;
+  focused scanner-only notes/a.md and no-temp-leftover tests also passed.
+
+Review-work fallback
+- The review-work skill expects Codex multi-agent tools, but tool search returned no
+  `multi_agent` spawn/wait tools in this session. I performed the goal, QA, code-quality,
+  security/scope, and context/dirty-state review lanes manually in this receipt.
+
+Residual risks
+- Because the Go migration files are untracked, `git diff` cannot show a normal tracked
+  patch for manifest files. This evidence lists the exact scoped files changed.
+- Empty manifest file behavior remains unchanged; this task did not ask to redefine it.

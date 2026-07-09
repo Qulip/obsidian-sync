@@ -1,0 +1,8 @@
+internal/syncagent/atomicfile/atomicfile.go       37
+internal/syncagent/manifest/manifest.go       85
+internal/syncagent/rules/rules.go       55
+internal/syncagent/scanner/scanner.go      101
+internal/syncagent/atomicfile/atomicfile_test.go       30
+internal/syncagent/manifest/manifest_test.go      109
+internal/syncagent/rules/rules_test.go       55
+internal/syncagent/scanner/scanner_test.go       88

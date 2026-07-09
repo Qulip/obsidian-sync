@@ -1,0 +1,5 @@
+=== RUN   TestReloadCommandWithoutAPIKey_returnsNotOK
+    obsidian_test.go:87: reload without API key returned not ok: obsidian reload requires an authenticated API key
+--- PASS: TestReloadCommandWithoutAPIKey_returnsNotOK (0.00s)
+PASS
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/obsidian	(cached)

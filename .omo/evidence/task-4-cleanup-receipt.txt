@@ -1,0 +1,45 @@
+Task 4 cleanup receipt
+
+Changed by Task 4:
+- internal/syncagent/atomicfile/atomicfile.go
+- internal/syncagent/atomicfile/atomicfile_test.go
+- internal/syncagent/manifest/manifest.go
+- internal/syncagent/manifest/manifest_test.go
+- internal/syncagent/rules/rules.go
+- internal/syncagent/rules/rules_test.go
+- internal/syncagent/scanner/scanner.go
+- internal/syncagent/scanner/scanner_test.go
+- .omo/evidence/task-4-red.txt
+- .omo/evidence/task-4-go-test.txt
+- .omo/evidence/task-4-go-test.exitcode
+- .omo/evidence/task-4-go-sync-cli-migration-scanner-manifest.txt
+- .omo/evidence/task-4-pure-loc.txt
+- .omo/evidence/task-4-changed-files.txt
+- .omo/evidence/task-4-git-status.txt
+- .omo/evidence/task-4-cleanup-receipt.txt
+
+Unrelated/pre-existing dirty-worktree context left untouched:
+- cmd/
+- go.mod
+- tests/sync_agent/test_contract.py
+- internal/syncagent/client
+- internal/syncagent/config
+- internal/syncagent/conflict
+- internal/syncagent/engine
+- internal/syncagent/obsidian
+- package doc.go skeletons from Task 2
+
+Adversarial classes:
+- stale_state: ruled out by checking pwd/worktree and correcting the initial misplaced patch before implementation.
+- dirty_worktree: present; scoped edits only to owned Task 4 package/evidence files.
+- misleading_success_output: ruled out by rerunning tests with -count=1 and recording exit code 0.
+- malformed input/path edge cases: covered valid non-object manifest as empty, missing manifest as empty, hidden path/dir ignores, conflict filename patterns, non-md exclusions, slash-normalized scanner paths.
+- flaky_tests: no sleeps or wall-clock assertions; filesystem tests use t.TempDir and content hash assertions.
+
+Cleanup:
+- No running command sessions left intentionally.
+- No .tmp- leftovers after manifest save covered by TestSave_writesManifestPathAndLeavesNoTempFiles.
+
+Additional verification:
+- go vet ./internal/syncagent/manifest ./internal/syncagent/atomicfile ./internal/syncagent/rules ./internal/syncagent/scanner exited 0.
+- review-work multi-agent orchestration was not runnable because multi_agent_v1 is not exposed in this session; local review gates were used instead.

@@ -1,0 +1,5 @@
+--- FAIL: TestLoad_returnsError_whenManifestIsCorruptJSON (0.00s)
+    manifest_test.go:71: Load returned nil error
+FAIL
+FAIL	github.com/Qulip/obsidian-sync/internal/syncagent/manifest	10.241s
+FAIL

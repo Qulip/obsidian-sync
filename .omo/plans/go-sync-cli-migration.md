@@ -120,7 +120,7 @@ Your next move: run `$start-work` or ask for a high-accuracy plan review first. 
   QA scenarios (name the exact tool + invocation): happy: `.omo/evidence/obsidian-sync-agent --help > .omo/evidence/task-2-go-sync-cli-migration-help.txt` and PASS if it prints `obsidian-sync-agent`; failure: `.omo/evidence/obsidian-sync-agent unknown` and PASS if exit code is non-zero and stderr identifies an unknown command, evidence `.omo/evidence/task-2-go-sync-cli-migration-unknown-command.txt`.
   Commit: Y | `build(go): add sync agent module skeleton`
 
-- [ ] 3. Port configuration loading and CLI/env/file precedence.
+- [x] 3. Port configuration loading and CLI/env/file precedence.
   What to do / Must NOT do: Implement `internal/syncagent/config` and command argument parsing so CLI > env > config file > default matches Python. Keep token env-only. Keep default Obsidian base URL, device ID sanitization, hostname fallback, and `--require-obsidian-refresh` semantics.
   Parallelization: Wave 2 | Blocked by: 1, 2 | Blocks: 7, 8
   References (executor has NO interview context - be exhaustive): `src/obsidian_sync/sync_agent/config.py:8-184`; `tests/sync_agent/test_config.py:18-104`; `docs/sync-agent.md:32-72`; `README.md:350-397`.

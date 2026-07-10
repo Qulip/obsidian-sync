@@ -1,0 +1,30 @@
+Debug audit for Task 7
+
+Hypotheses:
+1. Dry-run may still write local files, save manifest, register device, or push.
+2. Pull conflict may overwrite the original or push the same path again in the same run.
+3. Engine fake/client flow may hide races or silent panic recovery.
+
+Environment:
+go version go1.26.5 darwin/arm64
+
+H1 evidence: go test ./internal/syncagent/engine -run TestRunSyncDryRunDoesNotWriteOrPush -v
+=== RUN   TestRunSyncDryRunDoesNotWriteOrPush
+--- PASS: TestRunSyncDryRunDoesNotWriteOrPush (0.00s)
+PASS
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	0.274s
+exit code: 0
+
+H2 evidence: go test ./internal/syncagent/engine -run "TestRunSyncConflictDoesNotAutoMerge|TestRunSyncSkipsPullConflictPushInSameRun" -v
+=== RUN   TestRunSyncConflictDoesNotAutoMerge
+--- PASS: TestRunSyncConflictDoesNotAutoMerge (0.00s)
+=== RUN   TestRunSyncSkipsPullConflictPushInSameRun
+--- PASS: TestRunSyncSkipsPullConflictPushInSameRun (0.00s)
+PASS
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	0.266s
+exit code: 0
+
+H3 evidence: rg recover/panic and race test
+rg recover/panic exit code: 1 (1 means no matches)
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	11.505s
+race exit code: 0

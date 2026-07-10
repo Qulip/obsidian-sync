@@ -152,7 +152,7 @@ Your next move: run `$start-work` or ask for a high-accuracy plan review first. 
   QA scenarios (name the exact tool + invocation): happy: `go test ./internal/syncagent/conflict -run TestWriteConflictFile -v > .omo/evidence/task-6-go-sync-cli-migration-conflict.txt`, PASS if file content includes Local Version and Server Version; failure: `go test ./internal/syncagent/obsidian -run TestReloadCommandWithoutAPIKey -v`, PASS if result is not ok and no panic occurs, evidence `.omo/evidence/task-6-go-sync-cli-migration-obsidian.txt`.
   Commit: Y | `feat(sync-agent): port conflict and obsidian refresh behavior`
 
-- [ ] 7. Port sync engine orchestration and status behavior.
+- [x] 7. Port sync engine orchestration and status behavior.
   What to do / Must NOT do: Implement `internal/syncagent/engine` to match Python lifecycle: validate/load manifest, register device, pull first, skip same-run push for pull-conflicted paths, scan, push new/modified/deleted with correct base revisions, handle conflict resolution, pull second with `device_id`, save manifest, run Obsidian refresh, and status output. Preserve dry-run as no local writes and no pushes. Do not auto-merge conflicts.
   Parallelization: Wave 3 | Blocked by: 3, 4, 5, 6 | Blocks: 8, 9
   References (executor has NO interview context - be exhaustive): `src/obsidian_sync/sync_agent/engine.py:48-429`; `docs/sync-agent.md:154-246`; `tests/test_sync_agent_integration.py`; `tests/test_sync_concurrency.py`; `docs/sync-api.md:1-420`.

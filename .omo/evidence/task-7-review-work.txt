@@ -1,0 +1,54 @@
+Task 7 review and slop coverage
+
+Scope:
+- Owned writes only: internal/syncagent/engine/** and .omo/evidence/task-7-*.
+- Do not edit cmd/config/client/scanner/rules/conflict/obsidian packages, Python files, plan checkboxes, or ledger.
+- Current worktree is dirty by design for Task 7: engine files and evidence files are untracked task artifacts; internal/syncagent/engine/doc.go was already modified. This fix did not revert or overwrite unrelated files.
+
+Programming perspective:
+- Type clarity: shared sync lifecycle state is now grouped in syncRun; per-change/per-file state is grouped in pullChange and pushFile. This removes positional parameter ambiguity without map/any smuggling.
+- Error handling: existing error wrapping with %w is preserved for client, file, manifest, and conflict-write failures. No panic path or ignored error was added.
+- Stdlib/no deps: no new dependency was introduced. The refactor uses Go structs, methods, and existing package collaborators only.
+- Package boundaries: changes stay inside internal/syncagent/engine. Config, client, scanner, conflict, manifest, rules, and obsidian package APIs are consumed as before and not edited.
+- Context discipline: syncRun carries the caller-provided context; no context.Background was added inside engine helpers.
+
+remove-ai-slops perspective:
+- Excessive params fixed: the rejected helper signatures at pull.go:18,57,84,137,179 and push.go:17,80,123,160 were replaced with syncRun methods plus pullChange/pushFile values. Post-refactor scan artifact: .omo/evidence/task-7-fix-after.txt.
+- No overfit/tautological tests: tests drive RunSync with a fake SyncClient and real temp-dir vault files, then assert observable summaries, filesystem effects, manifest state, and fake client calls. They do not assert private helper calls or struct names.
+- No deletion-only tests: no test was removed or weakened. A direct Obsidian summary test was added in internal/syncagent/engine/obsidian_test.go.
+- No implementation-mirroring tests: tests assert behavior through RunSync/RunStatus, not the internal syncRun, pullChange, or pushFile implementation details.
+- No log-only success claims: verification is command-based and artifact-backed. Passing behavior is captured in task-7-go-test-engine.txt, task-7-go-vet-engine.txt, task-7-go-test-all.txt, targeted QA artifacts, and race-test artifact after this fix pass.
+- No hidden debug code: no fmt.Println/log/debug hooks or temporary runtime probes were added.
+- Slop criteria checked: obvious comments, over-defensive code, excessive params, needless abstraction, boundary violations, dead code, duplication, risky performance changes, missing tests, and oversized modules were reviewed for touched files. The only changed slop category was excessive params, plus behavior coverage for Obsidian summary.
+
+Manual QA matrix:
+- Happy engine flow: go test -count=1 ./internal/syncagent/engine -run TestRunSyncCreateUpdateDelete -v. Artifact: .omo/evidence/task-7-qa-create-update-delete.txt. Expected behavior: new and edited notes are pushed, deleted tracked note is remotely deleted, manifest no longer tracks the deleted note.
+- Conflict/no-auto-merge path: go test -count=1 ./internal/syncagent/engine -run TestRunSyncConflictDoesNotAutoMerge -v. Artifact: .omo/evidence/task-7-qa-conflict-no-auto-merge.txt. Expected behavior: local content remains unchanged, exactly one conflict file is written, summary reports the conflict, and no automatic merge happens.
+- Obsidian summary path: go test -count=1 ./internal/syncagent/engine -run TestRunSyncReportsObsidianRefreshWarning -v. Artifact: .omo/evidence/task-7-qa-obsidian-summary.txt. Expected behavior: RunSync returns ObsidianOK=false, the refresh message is preserved, and non-required refresh failure is added to warnings.
+
+Adversarial classes:
+- dirty_worktree: acknowledged. Existing untracked Task 7 artifacts and engine files are preserved; this fix edits only owned paths and does not reset/revert anything.
+- stale_state: mitigated by rerunning gofmt and fresh go test/go vet/go test ./.../race commands in the task worktree after edits. Evidence artifacts are regenerated after the refactor.
+- misleading_success_output: mitigated by capturing exact commands and exit codes in artifacts. No "pass" claim is based only on source inspection.
+- malformed_input: source guards remain for unsafe server/local paths, server hash mismatch, and conflict payload revision extraction. Dedicated Task 7 tests exercise the sync/conflict outcomes, but this evidence does not claim dedicated malformed-input tests for every guard.
+- flaky_tests/hung commands: commands use -count=1 where requested to avoid cache success. Long-running commands are allowed to complete and their exit code is recorded; race test is package-scoped to keep runtime bounded.
+
+Cleanup receipt:
+- Removed stale imports introduced by the refactor.
+- Production pull/push helper arity scan after refactor reports no 4+ comma-separated parameter helper signatures.
+- No generated temp files or debug output were left in internal/syncagent/engine.
+
+Residual risks:
+- This worker did not broaden tests outside the engine package except for the requested full go test ./... verification.
+- Existing Task 7 files are untracked in git status, so review should include untracked files explicitly.
+
+Second fix review:
+- engine.go blocker: dry-run planning is now syncRun.plan(), so context, config, manifest state, client, and summary travel through the existing grouped run state. The rejected five-parameter plan(...) signature is gone.
+- test helper blocker: change(...) became syncChange(changeSpec), vault file helpers became vaultFixture methods, and fake client call assertions now take expected putCall/deleteCall values. The rejected 4-5 argument helper signatures are gone.
+- evidence blocker: .omo/evidence/task-7-second-fix-after.txt scans every Go function signature under internal/syncagent/engine and separately scans for 4+ comma-separated parameter signatures across production and test files.
+- cleanup receipt: gofmt was run on touched engine files; no debug prints, temporary files, or generated helper scripts were left behind.
+
+Second fix runtime audit:
+- Hypothesis: moving plan into syncRun could change dry-run summary mutation or manifest scanning. Evidence: go test -count=1 ./internal/syncagent/engine passed, and TestRunSyncDryRunDoesNotWriteOrPush remains part of that package run.
+- Hypothesis: grouped test helper expected values could accidentally miss fake client base revisions. Evidence: TestRunSyncCreateUpdateDelete targeted QA passed and asserts putCall/deleteCall values including baseRevision where behavior requires it.
+- Hypothesis: conflict behavior could regress while changing fixtures. Evidence: TestRunSyncConflictDoesNotAutoMerge targeted QA passed and still observes local content preservation plus one conflict file.

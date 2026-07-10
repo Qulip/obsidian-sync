@@ -1,0 +1,5 @@
+=== RUN   TestRunSyncConflictDoesNotAutoMerge
+--- PASS: TestRunSyncConflictDoesNotAutoMerge (0.01s)
+PASS
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	10.229s
+exit code: 0

@@ -1,0 +1,15 @@
+# github.com/Qulip/obsidian-sync/internal/syncagent/engine [github.com/Qulip/obsidian-sync/internal/syncagent/engine.test]
+internal/syncagent/engine/engine_test.go:28:18: undefined: RunSync
+internal/syncagent/engine/engine_test.go:28:66: undefined: Options
+internal/syncagent/engine/engine_test.go:70:18: undefined: RunSync
+internal/syncagent/engine/engine_test.go:70:66: undefined: Options
+internal/syncagent/engine/engine_test.go:118:18: undefined: RunSync
+internal/syncagent/engine/engine_test.go:118:66: undefined: Options
+internal/syncagent/engine/engine_test.go:154:18: undefined: RunSync
+internal/syncagent/engine/engine_test.go:154:66: undefined: Options
+internal/syncagent/engine/engine_test.go:193:12: undefined: RunSync
+internal/syncagent/engine/engine_test.go:193:60: undefined: Options
+internal/syncagent/engine/engine_test.go:193:60: too many errors
+FAIL	github.com/Qulip/obsidian-sync/internal/syncagent/engine [build failed]
+FAIL
+exit code: 1

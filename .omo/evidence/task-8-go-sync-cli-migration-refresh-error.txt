@@ -1,0 +1,18 @@
+scenario=require_obsidian_refresh_failure
+timeout_wrapper=/usr/bin/perl alarm 10
+runtime_root=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.9BsWSK0HXl
+fake_server_pid=39748
+fake_server_url=http://127.0.0.1:57060
+$ /usr/bin/perl -e 'alarm 10; exec @ARGV' .omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:57060 --vault-id vault --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.9BsWSK0HXl/vault --device-id dev --require-obsidian-refresh
+exit_code=3
+stdout:
+stderr:
+pulled=0 applied=0 locally_deleted=0 pushed=0 remotely_deleted=0 conflicts=0 warnings=0
+obsidian refresh required but failed: obsidian reload requires an authenticated API key
+fake_server_log:
+"POST /vaults/vault/sync/devices HTTP/1.1" 200 -
+"GET /vaults/vault/sync/changes?limit=500&since=0 HTTP/1.1" 200 -
+"GET /vaults/vault/sync/changes?device_id=dev&limit=500&since=0 HTTP/1.1" 200 -
+"GET / HTTP/1.1" 200 -
+cleanup_fake_server_pid_39748=terminated
+cleanup_runtime_root_removed=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.9BsWSK0HXl

@@ -1,0 +1,185 @@
+scenario=live_fastapi_go_cli_parity
+runtime_root=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl
+binary=/Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent
+token=REDACTED
+$ docker run -d --rm --name obsidian-sync-task8-pg-54709 -e POSTGRES_USER=task8 -e POSTGRES_PASSWORD=task8-pass -e POSTGRES_DB=postgres -p 127.0.0.1::5432 pgvector/pgvector:pg16
+exit_code=0
+stdout:
+9690987387d0cc0c72e28622a4a9de37d49572482440dfc6c83d411f384a6003
+$ docker port obsidian-sync-task8-pg-54709 5432/tcp
+exit_code=0
+stdout:
+127.0.0.1:57776
+postgres_container=obsidian-sync-task8-pg-54709
+postgres_host=127.0.0.1
+postgres_port=57776
+postgres_ready=PASS
+alembic_upgrade_head=PASS exit_code=0
+api_token_inserted=PASS token=REDACTED
+uvicorn_port=57782
+uvicorn_pid=54735
+uvicorn_ready=PASS
+create_vault_status=200
+scenario=create_push_from_a
+$ /usr/bin/perl -e alarm 60; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-a --device-id deva
+exit_code=0
+stderr:
+pulled=1 applied=0 locally_deleted=0 pushed=1 remotely_deleted=0 conflicts=0 warnings=0
+sync completed successfully
+changes_status_after_create=200
+changes_body_after_create:
+{"data": {"changes": [{"content_hash": "2be510df8dce519e7a335a010ba7d7c20df61f30c851c446852a04197814e05a", "created_at": "2026-07-10T01:20:38.507854", "deleted": false, "event_type": "CREATE", "path": "JPA.md", "revision": 1}], "from_cursor": 0, "to_cursor": 1, "vault_id": "task8-go-live"}, "error": null, "success": true}
+$ /usr/bin/perl -e alarm 60; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-b --device-id devb
+exit_code=0
+stderr:
+pulled=1 applied=1 locally_deleted=0 pushed=0 remotely_deleted=0 conflicts=0 warnings=0
+sync completed successfully
+assert_create_pull_content=PASS value='v1 from A'
+scenario=update_and_conflict
+$ /usr/bin/perl -e alarm 60; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-a --device-id deva
+exit_code=0
+stderr:
+pulled=1 applied=0 locally_deleted=0 pushed=1 remotely_deleted=0 conflicts=0 warnings=0
+sync completed successfully
+$ /usr/bin/perl -e alarm 60; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-b --device-id devb
+exit_code=1
+stderr:
+pulled=1 applied=0 locally_deleted=0 pushed=0 remotely_deleted=0 conflicts=1 warnings=0
+conflict: JPA.md (a .conflict copy was written)
+sync completed with 1 conflict(s); review the .conflict files
+conflict_files=['JPA.conflict.devb.20260710-012038.md']
+assert_conflict_contains_local=PASS value=True
+assert_conflict_contains_server=PASS value=True
+assert_server_kept_winner=PASS value='v2 from A'
+scenario=resolved_conflict
+$ /usr/bin/perl -e alarm 60; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-b --device-id devb
+exit_code=0
+stderr:
+pulled=1 applied=0 locally_deleted=0 pushed=1 remotely_deleted=0 conflicts=0 warnings=0
+sync completed successfully
+assert_server_resolved_content=PASS value='resolved from A and B'
+$ /usr/bin/perl -e alarm 60; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-a --device-id deva
+exit_code=0
+stderr:
+pulled=1 applied=1 locally_deleted=0 pushed=0 remotely_deleted=0 conflicts=0 warnings=0
+sync completed successfully
+assert_resolved_pulled_to_a=PASS value='resolved from A and B'
+scenario=delete_propagation
+$ /usr/bin/perl -e alarm 60; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-a --device-id deva
+exit_code=0
+stderr:
+pulled=1 applied=0 locally_deleted=0 pushed=1 remotely_deleted=0 conflicts=0 warnings=0
+sync completed successfully
+$ /usr/bin/perl -e alarm 60; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-b --device-id devb
+exit_code=0
+stderr:
+pulled=1 applied=1 locally_deleted=0 pushed=0 remotely_deleted=0 conflicts=0 warnings=0
+sync completed successfully
+assert_note2_pulled_to_b=PASS value='note two'
+$ /usr/bin/perl -e alarm 60; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-a --device-id deva
+exit_code=0
+stderr:
+pulled=1 applied=0 locally_deleted=0 pushed=0 remotely_deleted=1 conflicts=0 warnings=0
+sync completed successfully
+$ /usr/bin/perl -e alarm 60; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-b --device-id devb
+exit_code=0
+stderr:
+pulled=1 applied=0 locally_deleted=1 pushed=0 remotely_deleted=0 conflicts=0 warnings=0
+sync completed successfully
+assert_note2_deleted_from_b=PASS value=False
+assert_note2_server_get_status=PASS value=404
+assert_note2_db_deleted=PASS value=[True]
+scenario=status
+$ /usr/bin/perl -e alarm 30; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent status --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-a --device-id deva
+exit_code=0
+stdout:
+vault_id=task8-go-live
+server_revision=5
+device_last_seen_revision=5
+pending_changes=0
+open_conflicts=0
+pending_vectorizing_jobs=1
+local_manifest_cursor=5
+tracked_local_files=1
+status_output_fields=PASS
+scenario=dry_run
+$ /usr/bin/perl -e alarm 60; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-a --device-id deva --dry-run
+exit_code=0
+stderr:
+DRY RUN: pulled=0 applied=0 locally_deleted=0 pushed=1 remotely_deleted=0 conflicts=0 warnings=0
+assert_dry_run_did_not_push=PASS value=404
+result=PASS
+cleanup_uvicorn=terminated pid 54735 exit 143
+cleanup_docker_rm_exit=0
+cleanup_docker_rm_stdout=obsidian-sync-task8-pg-54709
+uvicorn_log_tail:
+INFO:     Started server process [54736]
+INFO:     Waiting for application startup.
+StreamableHTTP session manager started
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:57782 (Press CTRL+C to quit)
+INFO:     127.0.0.1:57786 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57788 - "POST /vaults HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57790 - "POST /vaults/task8-go-live/sync/devices HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57790 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57790 - "PUT /vaults/task8-go-live/files/JPA.md HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57790 - "GET /vaults/task8-go-live/sync/changes?device_id=deva&limit=500&since=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57790 - "GET /vaults/task8-go-live/sync/changes?device_id=deva&limit=500&since=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57792 - "GET /vaults/task8-go-live/sync/changes?since=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57793 - "POST /vaults/task8-go-live/sync/devices HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57793 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57793 - "GET /vaults/task8-go-live/files/JPA.md HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57793 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57793 - "GET /vaults/task8-go-live/sync/changes?device_id=devb&limit=500&since=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57794 - "POST /vaults/task8-go-live/sync/devices HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57794 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57794 - "PUT /vaults/task8-go-live/files/JPA.md HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57794 - "GET /vaults/task8-go-live/sync/changes?device_id=deva&limit=500&since=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57794 - "GET /vaults/task8-go-live/sync/changes?device_id=deva&limit=500&since=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57795 - "POST /vaults/task8-go-live/sync/devices HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57795 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57795 - "GET /vaults/task8-go-live/files/JPA.md HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57795 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57795 - "GET /vaults/task8-go-live/sync/changes?device_id=devb&limit=500&since=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57796 - "GET /vaults/task8-go-live/files/JPA.md HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57797 - "POST /vaults/task8-go-live/sync/devices HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57797 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57797 - "PUT /vaults/task8-go-live/files/JPA.md HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57797 - "GET /vaults/task8-go-live/sync/changes?device_id=devb&limit=500&since=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57797 - "GET /vaults/task8-go-live/sync/changes?device_id=devb&limit=500&since=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57798 - "GET /vaults/task8-go-live/files/JPA.md HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57799 - "POST /vaults/task8-go-live/sync/devices HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57799 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57799 - "GET /vaults/task8-go-live/files/JPA.md HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57799 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57799 - "GET /vaults/task8-go-live/sync/changes?device_id=deva&limit=500&since=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57800 - "POST /vaults/task8-go-live/sync/devices HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57800 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57800 - "PUT /vaults/task8-go-live/files/note2.md HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57800 - "GET /vaults/task8-go-live/sync/changes?device_id=deva&limit=500&since=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57800 - "GET /vaults/task8-go-live/sync/changes?device_id=deva&limit=500&since=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57801 - "POST /vaults/task8-go-live/sync/devices HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57801 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57801 - "GET /vaults/task8-go-live/files/note2.md HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57801 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57801 - "GET /vaults/task8-go-live/sync/changes?device_id=devb&limit=500&since=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57802 - "POST /vaults/task8-go-live/sync/devices HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57802 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57802 - "DELETE /vaults/task8-go-live/files/note2.md HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57802 - "GET /vaults/task8-go-live/sync/changes?device_id=deva&limit=500&since=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57802 - "GET /vaults/task8-go-live/sync/changes?device_id=deva&limit=500&since=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "POST /vaults/task8-go-live/sync/devices HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=4 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57803 - "GET /vaults/task8-go-live/sync/changes?device_id=devb&limit=500&since=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57804 - "GET /vaults/task8-go-live/files/note2.md HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:57806 - "GET /vaults/task8-go-live/sync/status?device_id=deva HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57807 - "GET /vaults/task8-go-live/sync/changes?limit=500&since=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57808 - "GET /vaults/task8-go-live/files/dry-run-only.md HTTP/1.1" 404 Not Found
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+StreamableHTTP session manager shutting down
+INFO:     Application shutdown complete.
+INFO:     Finished server process [54736]
+cleanup_runtime_root_removed=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl
+cleanup_notes=docker rm -f obsidian-sync-task8-pg-54709; terminate uvicorn if started; remove runtime root

@@ -160,7 +160,7 @@ Your next move: run `$start-work` or ask for a high-accuracy plan review first. 
   QA scenarios (name the exact tool + invocation): happy: `go test ./internal/syncagent/engine -run TestRunSyncCreateUpdateDelete -v > .omo/evidence/task-7-go-sync-cli-migration-engine.txt`, PASS if summary counts match expected pushed/applied/deleted; failure: `go test ./internal/syncagent/engine -run TestRunSyncConflictDoesNotAutoMerge -v`, PASS if conflict file is recorded and original file is not overwritten, evidence same file.
   Commit: Y | `feat(sync-agent): port sync engine to go`
 
-- [ ] 8. Wire the Go CLI binary and run live parity QA against the Python server.
+- [x] 8. Wire the Go CLI binary and run live parity QA against the Python server.
   What to do / Must NOT do: Wire `cmd/obsidian-sync-agent` to config, engine, logging, subcommands, flags, stdout/stderr behavior, and exit codes. Build the binary and drive it against a live local FastAPI test server. Do not remove Python CLI yet.
   Parallelization: Wave 3 | Blocked by: 7 | Blocks: 9
   References (executor has NO interview context - be exhaustive): `src/obsidian_sync/sync_agent/cli.py:1-117`; `tests/test_sync_agent_integration.py:67-263`; `README.md:371-408`; `docs/sync-agent.md:16-31`; `docs/sync-agent.md:340-356`.

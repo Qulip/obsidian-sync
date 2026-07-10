@@ -46,7 +46,7 @@ func syncChange(spec changeSpec) client.SyncChangeItem {
 		EventType:   spec.eventType,
 		ContentHash: spec.contentHash,
 		Deleted:     spec.deleted,
-		CreatedAt:   fixedNow(),
+		CreatedAt:   client.APITime{Time: fixedNow()},
 	}
 }
 

@@ -1,22 +1,23 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
-	"time"
 
 	"github.com/Qulip/obsidian-sync/internal/syncagent/config"
+	"github.com/Qulip/obsidian-sync/internal/syncagent/engine"
 )
 
 const (
-	commandName = "obsidian-sync-agent"
-	exitOK      = 0
-	exitError   = 2
+	commandName  = "obsidian-sync-agent"
+	exitOK       = 0
+	exitConflict = 1
+	exitError    = 2
+	exitObsidian = 3
 )
 
 func main() {
@@ -58,6 +59,7 @@ type commandOptions struct {
 	verbose                bool
 	dryRun                 bool
 	requireObsidianRefresh bool
+	helpRequested          bool
 }
 
 func runStatus(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -65,14 +67,18 @@ func runStatus(args []string, stdout io.Writer, stderr io.Writer) int {
 	if !ok {
 		return exitError
 	}
+	if options.helpRequested {
+		return exitOK
+	}
 	agentConfig, err := config.Load(options.overrides(false))
 	if err != nil {
 		return writeCommandError(stderr, "configuration error", err)
 	}
-	if err := probeStatus(agentConfig); err != nil {
+	report, err := engine.RunStatus(context.Background(), agentConfig, engine.StatusOptions{})
+	if err != nil {
 		return writeCommandError(stderr, "sync failed", err)
 	}
-	fmt.Fprintln(stdout, "status ok")
+	printStatus(stdout, report)
 	return exitOK
 }
 
@@ -81,11 +87,33 @@ func runSync(args []string, _ io.Writer, stderr io.Writer) int {
 	if !ok {
 		return exitError
 	}
-	_, err := config.Load(options.overrides(options.requireObsidianRefresh))
+	if options.helpRequested {
+		return exitOK
+	}
+	agentConfig, err := config.Load(options.overrides(options.requireObsidianRefresh))
 	if err != nil {
 		return writeCommandError(stderr, "configuration error", err)
 	}
-	return writeCommandError(stderr, "sync failed", errors.New("sync engine is not implemented yet"))
+	summary, err := engine.RunSync(context.Background(), agentConfig, engine.Options{
+		DryRun: options.dryRun,
+	})
+	if err != nil {
+		return writeCommandError(stderr, "sync failed", err)
+	}
+	printSummary(stderr, summary)
+	if summary.DryRun {
+		return exitOK
+	}
+	if agentConfig.RequireObsidianRefresh && !summary.ObsidianOK {
+		fmt.Fprintf(stderr, "obsidian refresh required but failed: %s\n", summary.ObsidianMessage)
+		return exitObsidian
+	}
+	if len(summary.Conflicts) > 0 {
+		fmt.Fprintf(stderr, "sync completed with %d conflict(s); review the .conflict files\n", len(summary.Conflicts))
+		return exitConflict
+	}
+	fmt.Fprintln(stderr, "sync completed successfully")
+	return exitOK
 }
 
 func parseCommand(name string, args []string, stderr io.Writer, includeSyncFlags bool) (commandOptions, bool) {
@@ -102,6 +130,10 @@ func parseCommand(name string, args []string, stderr io.Writer, includeSyncFlags
 		flags.BoolVar(&options.requireObsidianRefresh, "require-obsidian-refresh", false, "exit non-zero if the Obsidian refresh step fails")
 	}
 	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			options.helpRequested = true
+			return options, true
+		}
 		return commandOptions{}, false
 	}
 	if flags.NArg() != 0 {
@@ -122,39 +154,47 @@ func (o commandOptions) overrides(requireRefreshSet bool) config.CLIOverrides {
 	}
 }
 
-func probeStatus(agentConfig config.AgentConfig) error {
-	statusURL, err := url.JoinPath(agentConfig.ServerBaseURL, "api", "v1", "sync", "vaults", agentConfig.VaultID, "status")
-	if err != nil {
-		return fmt.Errorf("build status url: %w", err)
-	}
-	parsed, err := url.Parse(statusURL)
-	if err != nil {
-		return fmt.Errorf("parse status url: %w", err)
-	}
-	query := parsed.Query()
-	query.Set("device_id", agentConfig.DeviceID)
-	parsed.RawQuery = query.Encode()
-
-	client := http.Client{Timeout: 2 * time.Second}
-	req, err := http.NewRequest(http.MethodGet, parsed.String(), nil)
-	if err != nil {
-		return fmt.Errorf("create status request for %s: %w", parsed.String(), err)
-	}
-	if agentConfig.APIToken != "" {
-		req.Header.Set("Authorization", "Bearer "+agentConfig.APIToken)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("get status from %s for vault %s device %s: %w", agentConfig.ServerBaseURL, agentConfig.VaultID, agentConfig.DeviceID, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("get status from %s for vault %s device %s: http %d", agentConfig.ServerBaseURL, agentConfig.VaultID, agentConfig.DeviceID, resp.StatusCode)
-	}
-	return nil
-}
-
 func writeCommandError(stderr io.Writer, prefix string, err error) int {
 	fmt.Fprintf(stderr, "%s: %v\n", prefix, err)
 	return exitError
+}
+
+func printSummary(output io.Writer, summary engine.Summary) {
+	prefix := ""
+	if summary.DryRun {
+		prefix = "DRY RUN: "
+	}
+	fmt.Fprintf(
+		output,
+		"%spulled=%d applied=%d locally_deleted=%d pushed=%d remotely_deleted=%d conflicts=%d warnings=%d\n",
+		prefix,
+		summary.Pulled,
+		summary.Applied,
+		summary.LocallyDeleted,
+		summary.Pushed,
+		summary.RemotelyDeleted,
+		len(summary.Conflicts),
+		len(summary.Warnings),
+	)
+	for _, path := range summary.Conflicts {
+		fmt.Fprintf(output, "conflict: %s (a .conflict copy was written)\n", path)
+	}
+	for _, warning := range summary.Warnings {
+		fmt.Fprintf(output, "warning: %s\n", warning)
+	}
+}
+
+func printStatus(output io.Writer, report engine.StatusReport) {
+	lastSeen := "unknown"
+	if report.Server.DeviceLastSeenRevision != nil {
+		lastSeen = fmt.Sprintf("%d", *report.Server.DeviceLastSeenRevision)
+	}
+	fmt.Fprintf(output, "vault_id=%s\n", report.Server.VaultID)
+	fmt.Fprintf(output, "server_revision=%d\n", report.Server.ServerRevision)
+	fmt.Fprintf(output, "device_last_seen_revision=%s\n", lastSeen)
+	fmt.Fprintf(output, "pending_changes=%d\n", report.Server.PendingChanges)
+	fmt.Fprintf(output, "open_conflicts=%d\n", report.Server.OpenConflicts)
+	fmt.Fprintf(output, "pending_vectorizing_jobs=%d\n", report.Server.PendingVectorizingJobs)
+	fmt.Fprintf(output, "local_manifest_cursor=%d\n", report.LocalManifestCursor)
+	fmt.Fprintf(output, "tracked_local_files=%d\n", report.TrackedLocalFiles)
 }

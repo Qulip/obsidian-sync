@@ -1,6 +1,10 @@
 package client
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 const DefaultPageLimit = 500
 
@@ -27,12 +31,12 @@ type ChangesRequest struct {
 }
 
 type SyncChangeItem struct {
-	Revision    int       `json:"revision"`
-	Path        string    `json:"path"`
-	EventType   string    `json:"event_type"`
-	ContentHash *string   `json:"content_hash"`
-	Deleted     bool      `json:"deleted"`
-	CreatedAt   time.Time `json:"created_at"`
+	Revision    int     `json:"revision"`
+	Path        string  `json:"path"`
+	EventType   string  `json:"event_type"`
+	ContentHash *string `json:"content_hash"`
+	Deleted     bool    `json:"deleted"`
+	CreatedAt   APITime `json:"created_at"`
 }
 
 type SyncChangesData struct {
@@ -89,4 +93,27 @@ type DeleteFileData struct {
 	Path     string `json:"path"`
 	Revision int    `json:"revision"`
 	Deleted  bool   `json:"deleted"`
+}
+
+type APITime struct {
+	time.Time
+}
+
+func (t *APITime) UnmarshalJSON(data []byte) error {
+	var raw string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("decode api timestamp: %w", err)
+	}
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05.999999",
+		"2006-01-02T15:04:05",
+	} {
+		parsed, err := time.Parse(layout, raw)
+		if err == nil {
+			t.Time = parsed
+			return nil
+		}
+	}
+	return fmt.Errorf("decode api timestamp %q: %w", raw, ErrAPI)
 }

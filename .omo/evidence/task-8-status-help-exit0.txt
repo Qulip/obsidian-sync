@@ -1,0 +1,13 @@
+$ .omo/evidence/obsidian-sync-agent status --help
+Usage of status:
+  -device-id string
+    	override the device id
+  -server string
+    	server base url
+  -vault-id string
+    	server vault id
+  -vault-root string
+    	local vault directory
+  -verbose
+    	enable debug logging
+exit_code=0

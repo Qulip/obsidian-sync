@@ -1,0 +1,4 @@
+scenario=live_fastapi_go_cli_parity
+result=NOT_BLOCKED
+notes=Live QA completed successfully; see .omo/evidence/task-8-go-sync-cli-migration-live-sync.txt
+cleanup=No task8 Docker containers, uvicorn process, or runtime temp dirs remained in cleanup checks.

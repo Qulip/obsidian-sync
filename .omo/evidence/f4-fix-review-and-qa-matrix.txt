@@ -1,0 +1,191 @@
+F4 blocker-fix review and QA matrix
+worktree: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+captured_at: 2026-07-10
+scope: remaining F4 evidence blocker only
+
+Changed F4 fix files covered:
+- cmd/obsidian-sync-agent/main.go
+- cmd/obsidian-sync-agent/help_test.go
+- internal/syncagent/client/client.go
+- internal/syncagent/conflict/conflict.go
+- internal/syncagent/obsidian/obsidian.go
+- .omo/evidence/go-sync-cli-migration-task-3-final-approval-note.md
+- .omo/evidence/f4-fix-contract-and-slop.txt
+- .omo/evidence/obsidian-sync-agent
+
+Scope guard:
+- This pass adds only this file:
+  .omo/evidence/f4-fix-review-and-qa-matrix.txt
+- No source, docs, Makefile, plan, or ledger files are edited by this pass.
+- Existing dirty worktree entries are limited to F4 fix files/evidence plus
+  expected final-wave evidence files. They are treated as prior shared work,
+  not modified by this pass.
+
+Code review summary:
+- Root no-command behavior:
+  cmd/obsidian-sync-agent/main.go now distinguishes no arguments from root
+  help. No arguments print "the following arguments are required: command" to
+  stderr and return exitError, matching the Python argparse contract. Root
+  --help/-h remains exitOK with root usage on stdout.
+- Double-dash command help:
+  cmd/obsidian-sync-agent/main.go replaces flag.FlagSet default Usage output
+  for sync/status with printCommandHelp, preserving accepted flag parsing while
+  presenting Python-compatible --long-flag help text.
+- Helper arity refactors:
+  commandSpec, existingConflictQuery, bodyRequest, jsonRequest, and
+  obsidianSession group related inputs at their existing boundaries. The
+  refactors remove production helpers over the 3-explicit-parameter limit
+  without changing endpoint construction, conflict duplicate detection, HTTP
+  error wrapping, Obsidian health/reload flow, or public APIs.
+- Tests:
+  cmd/obsidian-sync-agent/help_test.go adds/splits behavior tests for
+  no-command exit 2, root help exit 0, and sync/status double-dash help.
+
+Manual QA and artifact-backed verification:
+- Artifact path:
+  .omo/evidence/f4-fix-contract-and-slop.txt
+- Go no-subcommand exit 2:
+  invocation `.omo/evidence/obsidian-sync-agent; code=$?; echo observed_exit=$code; exit $code`
+  binary observable `observed_exit=2`, command exit_code=2.
+- Python no-subcommand exit 2:
+  referenced by .omo/evidence/final-f4-scope-fidelity-regate.md as required
+  command `uv run obsidian-sync-agent` exit 2 and direct contract fallback
+  coverage. Python pytest target remains blocked by missing .env/DB; see note
+  below.
+- Sync help double-dash flags:
+  invocation `.omo/evidence/obsidian-sync-agent sync --help` with grep checks
+  for --vault-root, --dry-run, and --require-obsidian-refresh.
+  Binary observable: command output contains required double-dash flags and
+  exit_code=0.
+- Status help double-dash flags:
+  invocation `.omo/evidence/obsidian-sync-agent status --help` with grep checks
+  for --vault-root, --vault-id, --server, --device-id, and --verbose.
+  Binary observable: command output contains required double-dash flags and
+  exit_code=0.
+- Production arity scan:
+  invocation `go run /tmp/f4_arity_scan.XXXXXX.go`.
+  Binary observable: "arity scan passed: no production function in requested
+  packages has more than 3 explicit parameters", exit_code=0.
+- Tests/vet/build:
+  `go test -count=1 ./cmd/obsidian-sync-agent` exit_code=0.
+  `go test -count=1 ./internal/syncagent/conflict ./internal/syncagent/obsidian ./internal/syncagent/client` exit_code=0.
+  `go test -count=1 ./cmd/obsidian-sync-agent ./internal/syncagent/...` exit_code=0.
+  `go test -count=1 ./...` exit_code=0.
+  `go vet ./...` exit_code=0.
+  `go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent` exit_code=0.
+- Whitespace:
+  `.omo/evidence/f4-fix-contract-and-slop.txt` records `git diff --check`
+  exit_code=0 for the F4 fix diff before this matrix artifact.
+
+Programming checks:
+- Strict boundary behavior:
+  CLI boundary behavior remains explicit and exit-code based. No command is a
+  boundary parse error, root help is successful introspection, command help is
+  successful introspection, and unexpected command arguments still fail through
+  command parsing.
+- No product Python change:
+  .omo/evidence/final-f4-scope-fidelity-regate.md records no
+  `src/obsidian_sync` changes and no Python production diff. The only branch
+  Python change named there is the characterization test
+  tests/sync_agent/test_contract.py.
+- No helper >3 params:
+  .omo/evidence/f4-fix-contract-and-slop.txt records a production arity scan
+  over cmd/obsidian-sync-agent, internal/syncagent/client,
+  internal/syncagent/conflict, and internal/syncagent/obsidian with no
+  production function above 3 explicit parameters.
+- client.go 247 pure LOC:
+  .omo/evidence/f4-fix-contract-and-slop.txt records
+  internal/syncagent/client/client.go pure_loc=247, below the 250 pure LOC
+  ceiling.
+- Tests added/split in help_test.go:
+  help_test.go separates no-command error behavior, root help behavior, and
+  command help flag rendering, with Given/When/Then comments retained as useful
+  test structure rather than obvious-code narration.
+- Errors remain typed/exit-code based:
+  The CLI still returns named exit constants. Client and Obsidian helpers keep
+  error values wrapped with context via `%w` where callers need causality, and
+  client envelope conflict behavior remains in the existing typed error path.
+
+remove-ai-slops / overfit checks:
+- No fake approval:
+  This matrix does not mark F4 approved; it supplies the missing blocker-fix
+  review/QA evidence. Approval remains for the final gate to decide.
+- No broad command framework:
+  commandSpec is a two-field local grouping for command help/parse behavior,
+  not a new command framework or speculative abstraction.
+- No arbitrary compatibility shim beyond Python contract:
+  The help rendering change is limited to the observed Python-compatible
+  double-dash contract while keeping the same flag names and parse behavior.
+- No stale Task 3 reject rewrite:
+  The historical reject artifact is not edited. The new approval note records
+  later evidence and the F4 repair validation that covers the root CLI
+  contract.
+- No temp scripts:
+  .omo/evidence/f4-fix-contract-and-slop.txt records the temporary arity scan
+  script was removed and `find /tmp -maxdepth 1 -name 'f4_arity_scan.*.go'`
+  had exit_code=0 with no paths printed.
+- No overbroad refactor:
+  Source changes are confined to the current F4 blocker files and preserve
+  public behavior: root CLI handling, command help text, related helper inputs,
+  conflict duplicate query, client body request construction, and Obsidian
+  session request construction.
+- No evidence-only claim without command transcript:
+  Behavior, arity, build, vet, tests, LOC, cleanup, and no-running-process
+  checks are tied to command transcripts in
+  .omo/evidence/f4-fix-contract-and-slop.txt and
+  .omo/evidence/final-f4-scope-fidelity-regate.md.
+
+Adversarial probes:
+- malformed input/no-command:
+  Covered by help_test.go and manual binary no-argument invocation; exit 2 is
+  observed in .omo/evidence/f4-fix-contract-and-slop.txt.
+- stale_state:
+  Artifact paths are current in this worktree. The binary under
+  .omo/evidence/obsidian-sync-agent is rebuilt by the recorded F4 command
+  transcript before manual probes.
+- dirty_worktree:
+  Status scope is recorded in .omo/evidence/f4-fix-contract-and-slop.txt. This
+  pass adds only the matrix artifact and does not normalize unrelated dirty
+  entries.
+- misleading_success_output:
+  Manual help checks grep for required double-dash flags and propagate the
+  command exit code. The no-command probe exits with the observed non-zero code,
+  so success cannot be inferred from printed text alone.
+- hung_long_commands:
+  No services or debugger sessions are started for the matrix. Existing
+  transcript records no local services started and cleanup checks for
+  obsidian-sync-agent, uvicorn, and go processes.
+- flaky_tests:
+  Go tests were run with `-count=1` across targeted packages and all packages,
+  preventing cached pass claims.
+- prompt_injection / cancel_resume / repeated_interruptions applicability:
+  Not applicable to the runtime surface of this Go CLI blocker fix. The
+  relevant adversarial runtime surface is malformed/no command input, help
+  surface mismatch, stale binary state, dirty worktree scope, and false-success
+  command reporting, all covered above.
+
+Cleanup / no-running resources:
+- Artifact path:
+  .omo/evidence/f4-fix-contract-and-slop.txt
+- Recorded observables:
+  `temp_scan_removed=true`.
+  `background_jobs_check_exit_code=0`.
+  `pgrep -x obsidian-sync-agent` exit_code=1.
+  `pgrep -x uvicorn` exit_code=1.
+  `pgrep -x go` exit_code=1.
+  `find /tmp -maxdepth 1 -name 'f4_arity_scan.*.go' -print` exit_code=0 with
+  no remaining scan path printed.
+
+Known environment limitation:
+- Python pytest target remains blocked by missing `.env`/database setup:
+  `uv run pytest tests/sync_agent tests/test_sync_rules.py` exit 4 in
+  .omo/evidence/final-f4-scope-fidelity-regate.md.
+- Contract fallback passes:
+  `uv run python -m unittest discover -s tests/sync_agent -p 'test_contract.py'`
+  exit 0 in .omo/evidence/final-f4-scope-fidelity-regate.md.
+
+Matrix conclusion:
+- The current F4 blocker-fix diff has explicit code-review, programming, manual
+  QA, remove-ai-slops, and overfit coverage tied to existing command artifacts.
+- Remaining approval decision is no longer blocked by absence of this matrix
+  artifact.

@@ -63,7 +63,12 @@ func Refresh(ctx context.Context, config Config) Result {
 		apiKey = os.Getenv(apiKeyEnv)
 	}
 
-	authenticated, result := health(ctx, client, baseURL, apiKey)
+	session := obsidianSession{
+		client:  client,
+		baseURL: baseURL,
+		apiKey:  apiKey,
+	}
+	authenticated, result := session.health(ctx)
 	if !result.OK {
 		return result
 	}
@@ -73,7 +78,7 @@ func Refresh(ctx context.Context, config Config) Result {
 	if !authenticated {
 		return Result{OK: false, Message: "obsidian reload requires an authenticated API key"}
 	}
-	return reload(ctx, client, baseURL, apiKey)
+	return session.reload(ctx)
 }
 
 func parseBaseURL(raw string) (*url.URL, error) {
@@ -101,23 +106,42 @@ func newHTTPClient(verifyTLS bool) *http.Client {
 	}
 }
 
-func health(ctx context.Context, client *http.Client, baseURL *url.URL, apiKey string) (bool, Result) {
+type obsidianSession struct {
+	client  *http.Client
+	baseURL *url.URL
+	apiKey  string
+}
+
+type jsonRequest struct {
+	method   string
+	endpoint string
+}
+
+func (s obsidianSession) health(ctx context.Context) (bool, Result) {
 	var payload struct {
 		Authenticated bool `json:"authenticated"`
 	}
-	if err := doJSON(ctx, client, http.MethodGet, baseURL.JoinPath("/").String(), apiKey, &payload); err != nil {
+	err := s.doJSON(ctx, jsonRequest{
+		method:   http.MethodGet,
+		endpoint: s.baseURL.JoinPath("/").String(),
+	}, &payload)
+	if err != nil {
 		return false, Result{OK: false, Message: fmt.Sprintf("obsidian is not reachable: %v", err)}
 	}
 	return payload.Authenticated, Result{OK: true, Message: "obsidian is reachable"}
 }
 
-func reload(ctx context.Context, client *http.Client, baseURL *url.URL, apiKey string) Result {
+func (s obsidianSession) reload(ctx context.Context) Result {
 	var payload struct {
 		Commands []struct {
 			ID string `json:"id"`
 		} `json:"commands"`
 	}
-	if err := doJSON(ctx, client, http.MethodGet, endpoint(baseURL, "/commands/"), apiKey, &payload); err != nil {
+	err := s.doJSON(ctx, jsonRequest{
+		method:   http.MethodGet,
+		endpoint: endpoint(s.baseURL, "/commands/"),
+	}, &payload)
+	if err != nil {
 		return Result{OK: false, Message: fmt.Sprintf("obsidian command list failed: %v", err)}
 	}
 	hasReload := false
@@ -130,7 +154,11 @@ func reload(ctx context.Context, client *http.Client, baseURL *url.URL, apiKey s
 	if !hasReload {
 		return Result{OK: false, Message: fmt.Sprintf("obsidian command %s is unavailable", ReloadCommandID)}
 	}
-	if err := doJSON(ctx, client, http.MethodPost, endpoint(baseURL, "/commands/"+ReloadCommandID+"/"), apiKey, nil); err != nil {
+	err = s.doJSON(ctx, jsonRequest{
+		method:   http.MethodPost,
+		endpoint: endpoint(s.baseURL, "/commands/"+ReloadCommandID+"/"),
+	}, nil)
+	if err != nil {
 		return Result{OK: false, Message: fmt.Sprintf("obsidian reload failed: %v", err)}
 	}
 	return Result{OK: true, Message: "obsidian reloaded"}
@@ -142,22 +170,22 @@ func endpoint(baseURL *url.URL, suffix string) string {
 	return next.String()
 }
 
-func doJSON(ctx context.Context, client *http.Client, method string, endpoint string, apiKey string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, nil)
+func (s obsidianSession) doJSON(ctx context.Context, spec jsonRequest, out any) error {
+	req, err := http.NewRequestWithContext(ctx, spec.method, spec.endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
+	if s.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+s.apiKey)
 	}
-	resp, err := client.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s %s: %w", method, endpoint, err)
+		return fmt.Errorf("%s %s: %w", spec.method, spec.endpoint, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("%s %s: status %d", method, endpoint, resp.StatusCode)
+		return fmt.Errorf("%s %s: status %d", spec.method, spec.endpoint, resp.StatusCode)
 	}
 	if out == nil {
 		_, err := io.Copy(io.Discard, resp.Body)

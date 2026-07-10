@@ -25,7 +25,11 @@ func main() {
 }
 
 func run(args []string, stdout io.Writer, stderr io.Writer) int {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "the following arguments are required: command")
+		return exitError
+	}
+	if args[0] == "--help" || args[0] == "-h" {
 		printHelp(stdout)
 		return exitOK
 	}
@@ -62,8 +66,13 @@ type commandOptions struct {
 	helpRequested          bool
 }
 
+type commandSpec struct {
+	name             string
+	includeSyncFlags bool
+}
+
 func runStatus(args []string, stdout io.Writer, stderr io.Writer) int {
-	options, ok := parseCommand("status", args, stderr, false)
+	options, ok := parseCommand(commandSpec{name: "status"}, args, stderr)
 	if !ok {
 		return exitError
 	}
@@ -83,7 +92,7 @@ func runStatus(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func runSync(args []string, _ io.Writer, stderr io.Writer) int {
-	options, ok := parseCommand("sync", args, stderr, true)
+	options, ok := parseCommand(commandSpec{name: "sync", includeSyncFlags: true}, args, stderr)
 	if !ok {
 		return exitError
 	}
@@ -116,16 +125,19 @@ func runSync(args []string, _ io.Writer, stderr io.Writer) int {
 	return exitOK
 }
 
-func parseCommand(name string, args []string, stderr io.Writer, includeSyncFlags bool) (commandOptions, bool) {
+func parseCommand(spec commandSpec, args []string, stderr io.Writer) (commandOptions, bool) {
 	var options commandOptions
-	flags := flag.NewFlagSet(name, flag.ContinueOnError)
+	flags := flag.NewFlagSet(spec.name, flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	flags.Usage = func() {
+		printCommandHelp(stderr, spec)
+	}
 	flags.StringVar(&options.vaultRoot, "vault-root", "", "local vault directory")
 	flags.StringVar(&options.vaultID, "vault-id", "", "server vault id")
 	flags.StringVar(&options.server, "server", "", "server base url")
 	flags.StringVar(&options.deviceID, "device-id", "", "override the device id")
 	flags.BoolVar(&options.verbose, "verbose", false, "enable debug logging")
-	if includeSyncFlags {
+	if spec.includeSyncFlags {
 		flags.BoolVar(&options.dryRun, "dry-run", false, "print planned actions without writing or pushing")
 		flags.BoolVar(&options.requireObsidianRefresh, "require-obsidian-refresh", false, "exit non-zero if the Obsidian refresh step fails")
 	}
@@ -137,10 +149,30 @@ func parseCommand(name string, args []string, stderr io.Writer, includeSyncFlags
 		return commandOptions{}, false
 	}
 	if flags.NArg() != 0 {
-		fmt.Fprintf(stderr, "%s %s: unexpected argument %q\n", commandName, name, flags.Arg(0))
+		fmt.Fprintf(stderr, "%s %s: unexpected argument %q\n", commandName, spec.name, flags.Arg(0))
 		return commandOptions{}, false
 	}
 	return options, true
+}
+
+func printCommandHelp(output io.Writer, spec commandSpec) {
+	fmt.Fprintf(output, "Usage of %s:\n", spec.name)
+	fmt.Fprintln(output, "  --vault-root string")
+	fmt.Fprintln(output, "    \tlocal vault directory")
+	fmt.Fprintln(output, "  --vault-id string")
+	fmt.Fprintln(output, "    \tserver vault id")
+	fmt.Fprintln(output, "  --server string")
+	fmt.Fprintln(output, "    \tserver base url")
+	fmt.Fprintln(output, "  --device-id string")
+	fmt.Fprintln(output, "    \toverride the device id")
+	fmt.Fprintln(output, "  --verbose")
+	fmt.Fprintln(output, "    \tenable debug logging")
+	if spec.includeSyncFlags {
+		fmt.Fprintln(output, "  --dry-run")
+		fmt.Fprintln(output, "    \tprint planned actions without writing or pushing")
+		fmt.Fprintln(output, "  --require-obsidian-refresh")
+		fmt.Fprintln(output, "    \texit non-zero if the Obsidian refresh step fails")
+	}
 }
 
 func (o commandOptions) overrides(requireRefreshSet bool) config.CLIOverrides {

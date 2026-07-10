@@ -178,10 +178,10 @@ Your next move: run `$start-work` or ask for a high-accuracy plan review first. 
 
 ## Final verification wave
 > Runs in parallel after ALL todos. ALL must APPROVE. Surface results and wait for the user's explicit okay before declaring complete.
-- [ ] F1. Plan compliance audit: inspect `git diff --stat`, `git diff --name-only`, and this plan. PASS only if product-code changes match the staged plan and Python server scope is untouched except docs/tests explicitly named above.
-- [ ] F2. Code quality review: run `go test ./...`, `go vet ./...`, `uv run ruff check .`, and `uv run mypy`. PASS only if no new failures are introduced; if local PostgreSQL is missing, record that DB integration tests could not run and run non-DB tests.
-- [ ] F3. Real manual QA: run the built Go binary through help, missing config, dry-run, live sync, conflict, resolved conflict, status, and require-refresh-failure scenarios. PASS only with transcripts under `.omo/evidence/`.
-- [ ] F4. Scope fidelity: compare Go behavior against `docs/sync-agent.md`, `README.md`, and Python sync-agent tests. PASS only if config/env/manifest/conflict/ignore/exit-code contracts are unchanged or any intentional deviation has explicit user approval.
+- [x] F1. Plan compliance audit: inspect `git diff --stat`, `git diff --name-only`, and this plan. PASS only if product-code changes match the staged plan and Python server scope is untouched except docs/tests explicitly named above.
+- [x] F2. Code quality review: run `go test ./...`, `go vet ./...`, `uv run ruff check .`, and `uv run mypy`. PASS only if no new failures are introduced; if local PostgreSQL is missing, record that DB integration tests could not run and run non-DB tests.
+- [x] F3. Real manual QA: run the built Go binary through help, missing config, dry-run, live sync, conflict, resolved conflict, status, and require-refresh-failure scenarios. PASS only with transcripts under `.omo/evidence/`.
+- [x] F4. Scope fidelity: compare Go behavior against `docs/sync-agent.md`, `README.md`, and Python sync-agent tests. PASS only if config/env/manifest/conflict/ignore/exit-code contracts are unchanged or any intentional deviation has explicit user approval.
 
 ## Commit strategy
 - Use small commits aligned to todos when practical.

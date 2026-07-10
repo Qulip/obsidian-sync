@@ -45,12 +45,12 @@ func WriteFile(req Request) (string, error) {
 		return "", err
 	}
 
-	existing, err := findExisting(
-		filepath.Dir(destination),
-		strings.TrimSuffix(path.Base(req.Path), path.Ext(req.Path)),
-		req.DeviceID,
-		req.ServerRevision,
-	)
+	existing, err := findExisting(existingConflictQuery{
+		directory:      filepath.Dir(destination),
+		stem:           strings.TrimSuffix(path.Base(req.Path), path.Ext(req.Path)),
+		deviceID:       req.DeviceID,
+		serverRevision: req.ServerRevision,
+	})
 	if err != nil {
 		return "", err
 	}
@@ -86,15 +86,22 @@ func destinationPath(req Request, moment time.Time) (string, error) {
 	return filepath.Join(root, cleanRelative), nil
 }
 
-func findExisting(directory string, stem string, deviceID string, serverRevision int) (string, error) {
-	entries, err := os.ReadDir(directory)
+type existingConflictQuery struct {
+	directory      string
+	stem           string
+	deviceID       string
+	serverRevision int
+}
+
+func findExisting(query existingConflictQuery) (string, error) {
+	entries, err := os.ReadDir(query.directory)
 	if os.IsNotExist(err) {
 		return "", nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("read conflict directory: %w", err)
 	}
-	prefix := fmt.Sprintf("%s.conflict.%s.", stem, deviceID)
+	prefix := fmt.Sprintf("%s.conflict.%s.", query.stem, query.deviceID)
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -103,9 +110,9 @@ func findExisting(directory string, stem string, deviceID string, serverRevision
 		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".md") {
 			continue
 		}
-		candidate := filepath.Join(directory, name)
+		candidate := filepath.Join(query.directory, name)
 		revision, ok := parseServerRevision(candidate)
-		if ok && revision == serverRevision {
+		if ok && revision == query.serverRevision {
 			return candidate, nil
 		}
 	}

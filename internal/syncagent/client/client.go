@@ -53,10 +53,8 @@ func (c *Client) RegisterDevice(
 	body RegisterDeviceRequest,
 ) (RegisterDeviceData, error) {
 	path := "/vaults/" + url.PathEscape(vaultID) + "/sync/devices"
-	return sendWithBody[RegisterDeviceData](ctx, c, requestSpec{
-		method: http.MethodPost,
-		path:   path,
-	}, body)
+	request := bodyRequest[RegisterDeviceRequest]{c, requestSpec{method: http.MethodPost, path: path}, body}
+	return sendWithBody[RegisterDeviceData](ctx, request)
 }
 
 func (c *Client) GetChanges(
@@ -112,10 +110,8 @@ func (c *Client) PutFile(
 	ref FileRef,
 	body PutFileRequest,
 ) (PutFileData, error) {
-	return sendWithBody[PutFileData](ctx, c, requestSpec{
-		method: http.MethodPut,
-		path:   filePath(ref),
-	}, body)
+	request := bodyRequest[PutFileRequest]{c, requestSpec{method: http.MethodPut, path: filePath(ref)}, body}
+	return sendWithBody[PutFileData](ctx, request)
 }
 
 func (c *Client) DeleteFile(
@@ -123,10 +119,8 @@ func (c *Client) DeleteFile(
 	ref FileRef,
 	body DeleteFileRequest,
 ) (DeleteFileData, error) {
-	return sendWithBody[DeleteFileData](ctx, c, requestSpec{
-		method: http.MethodDelete,
-		path:   filePath(ref),
-	}, body)
+	request := bodyRequest[DeleteFileRequest]{c, requestSpec{method: http.MethodDelete, path: filePath(ref)}, body}
+	return sendWithBody[DeleteFileData](ctx, request)
 }
 
 func filePath(ref FileRef) string {
@@ -139,6 +133,12 @@ type requestSpec struct {
 	query  url.Values
 }
 
+type bodyRequest[B any] struct {
+	client *Client
+	spec   requestSpec
+	value  B
+}
+
 func sendNoBody[T any](ctx context.Context, c *Client, spec requestSpec) (T, error) {
 	var zero T
 	req, err := http.NewRequestWithContext(ctx, spec.method, c.requestURL(spec), nil)
@@ -148,18 +148,23 @@ func sendNoBody[T any](ctx context.Context, c *Client, spec requestSpec) (T, err
 	return do[T](c, req)
 }
 
-func sendWithBody[T any, B any](ctx context.Context, c *Client, spec requestSpec, bodyValue B) (T, error) {
+func sendWithBody[T any, B any](ctx context.Context, request bodyRequest[B]) (T, error) {
 	var zero T
-	body, err := encodeBody(bodyValue)
+	body, err := encodeBody(request.value)
 	if err != nil {
 		return zero, err
 	}
-	req, err := http.NewRequestWithContext(ctx, spec.method, c.requestURL(spec), body)
+	req, err := http.NewRequestWithContext(
+		ctx,
+		request.spec.method,
+		request.client.requestURL(request.spec),
+		body,
+	)
 	if err != nil {
 		return zero, fmt.Errorf("build sync request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return do[T](c, req)
+	return do[T](request.client, req)
 }
 
 func do[T any](c *Client, req *http.Request) (T, error) {

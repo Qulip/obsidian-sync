@@ -168,7 +168,7 @@ Your next move: run `$start-work` or ask for a high-accuracy plan review first. 
   QA scenarios (name the exact tool + invocation): happy: start server with `uv run uvicorn obsidian_sync.app:app --host 127.0.0.1 --port <free-port>` using the test database setup from `tests/test_sync_agent_integration.py`, then run `.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:<port> --vault-id <test-vault> --vault-root <tmp-vault-a> --device-id deva`; PASS if a note created in vault A appears through server sync in vault B and transcript is saved to `.omo/evidence/task-8-go-sync-cli-migration-live-sync.txt`; failure: run `.omo/evidence/obsidian-sync-agent sync --vault-root <tmp-vault>` with no server/vault config, PASS if exit code is `2`, evidence `.omo/evidence/task-8-go-sync-cli-migration-config-error.txt`.
   Commit: Y | `feat(sync-agent): wire go cli and prove live parity`
 
-- [ ] 9. Update documentation and add cross-platform release/build automation.
+- [x] 9. Update documentation and add cross-platform release/build automation.
   What to do / Must NOT do: Update README/docs to explain installing/downloading the Go binary, local development commands, and the coexistence/deprecation posture for the Python CLI. Add a Makefile or script for local builds and optionally `.goreleaser.yaml` plus GitHub Actions only after manual cross-builds pass. Do not claim release availability until artifacts are actually built.
   Parallelization: Wave 4 | Blocked by: 8 | Blocks: final verification
   References (executor has NO interview context - be exhaustive): `README.md:340-408`; `README.md:761-790`; `docs/sync-agent.md:1-31`; `pyproject.toml:18-20`; root `Dockerfile` for server-only context; Go cross-build commands in this plan.

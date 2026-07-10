@@ -6,11 +6,36 @@
 
 ## 설치
 
+권장 클라이언트 배포 형태는 Go로 빌드한 `obsidian-sync-agent` 단일
+바이너리입니다. 서버는 여전히 Python FastAPI 애플리케이션으로 실행합니다.
+
+릴리스에 현재 플랫폼용 바이너리가 첨부되어 있다면 내려받아 실행 권한을 주고
+`PATH`에 둡니다. 아직 실제로 게시되지 않은 릴리스 산출물은 이 문서에서
+가용하다고 보장하지 않습니다.
+
+```bash
+make build-agent
+install .omo/evidence/builds/obsidian-sync-agent /usr/local/bin/obsidian-sync-agent
+obsidian-sync-agent --help
+```
+
+크로스 플랫폼 로컬 빌드:
+
+```bash
+make build-agent-all
+```
+
+산출물은 `.omo/evidence/builds/` 아래에 생성됩니다.
+
+기존 Python CLI 진입점은 아직 유지됩니다. Go 바이너리가 클라이언트 배포 경로가
+되지만, Python `obsidian-sync-agent` 콘솔 스크립트는 명시적인 제거 작업 전까지
+호환성 확인과 롤백을 위해 남아 있습니다.
+
 ```bash
 uv sync --dev
 ```
 
-Entry point:
+Python entry point:
 
 ```bash
 uv run obsidian-sync-agent --help

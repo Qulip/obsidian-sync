@@ -337,7 +337,26 @@ the service attempts to restore the previous file state.
 
 ### Install
 
-각 PC에서 이 저장소를 clone 한 뒤 설치합니다. 진입점은 `obsidian-sync-agent`입니다.
+`obsidian-sync-agent`는 Go로 포팅된 로컬 클라이언트 바이너리를 기본 배포
+형태로 사용합니다. FastAPI 서버는 계속 Python 애플리케이션이며, Dockerfile도
+서버 실행만 대상으로 합니다.
+
+릴리스에 현재 OS/CPU용 바이너리가 첨부되어 있다면 내려받아 실행 권한을 주고
+`PATH`에 둡니다. 이 문서는 아직 게시되지 않은 릴리스 산출물이 있다고 주장하지
+않습니다. 릴리스 산출물이 없으면 아래처럼 로컬에서 빌드합니다.
+
+```bash
+make build-agent
+install .omo/evidence/builds/obsidian-sync-agent /usr/local/bin/obsidian-sync-agent
+obsidian-sync-agent --help
+```
+
+타깃별 로컬 빌드 산출물이 필요하면 `make build-agent-all`을 실행합니다.
+산출물은 `.omo/evidence/builds/` 아래에 생성됩니다.
+
+기존 Python 콘솔 스크립트도 아직 유지됩니다. Go 바이너리가 배포/운영 경로가
+되지만, Python CLI는 호환성 확인과 롤백을 위해 명시적인 제거 작업 전까지
+남겨둡니다.
 
 ```bash
 uv sync
@@ -368,7 +387,7 @@ export OBSIDIAN_SYNC_AGENT_SERVER='http://localhost:8000'
 export OBSIDIAN_SYNC_AGENT_VAULT_ID='personal-main'
 export OBSIDIAN_SYNC_AGENT_TOKEN='osk_...'
 
-uv run obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault"
+obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault"
 ```
 
 설정 파일로 관리하는 예시 (`~/ObsidianVault/.obsidian-sync-agent/config.json`):
@@ -393,19 +412,19 @@ uv run obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault"
 한 번의 sync 사이클(pull → 로컬 반영 → scan → push)을 실행합니다.
 
 ```bash
-uv run obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault"
+obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault"
 ```
 
 실제 쓰기/전송 없이 계획만 출력:
 
 ```bash
-uv run obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault" --dry-run
+obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault" --dry-run
 ```
 
 서버/로컬 동기화 상태 확인:
 
 ```bash
-uv run obsidian-sync-agent status --vault-root "$HOME/ObsidianVault"
+obsidian-sync-agent status --vault-root "$HOME/ObsidianVault"
 ```
 
 주기 실행은 cron/launchd/systemd timer로 위 `sync` 명령을 반복 호출하면 됩니다.
@@ -752,6 +771,10 @@ uv run ruff check .
 uv run ruff format .
 uv run mypy
 uv run pytest
+go test ./...
+go vet ./...
+make build-agent
+make build-agent-all
 ```
 
 For narrower work, run the smallest relevant pytest target first, then the full
@@ -764,6 +787,11 @@ uv run pytest tests/test_sync_api.py
 
 The full pytest suite expects local PostgreSQL access. Pure sync-agent and
 domain tests do not require PostgreSQL and can be run independently.
+
+`make build-agent-all` cross-builds the Go sync agent for darwin/arm64,
+darwin/amd64, linux/amd64, linux/arm64, and windows/amd64. The Python
+server development commands above remain the source of truth for running the
+API service locally.
 
 ## E2E Smoke Test Outline
 

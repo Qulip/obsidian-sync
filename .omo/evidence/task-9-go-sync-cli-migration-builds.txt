@@ -1,0 +1,468 @@
+Task 9 Go sync CLI migration build evidence
+UTC: 2026-07-10T05:57:21Z
+PWD: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+Branch: work/go-sync-cli-migration
+
+Scenario: stale_state clean rebuild after final docs/Makefile edits
+
+COMMAND: make clean-agent-builds
+rm -rf .omo/evidence/builds
+EXIT_CODE: 0
+
+COMMAND: go test -count=1 ./...
+ok  	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent	4.045s
+?   	github.com/Qulip/obsidian-sync/internal/syncagent	[no test files]
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile	3.155s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/client	4.464s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/config	0.686s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/conflict	2.289s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	3.613s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/manifest	1.460s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/obsidian	2.725s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/rules	1.900s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/scanner	1.066s
+EXIT_CODE: 0
+
+COMMAND: go vet ./...
+EXIT_CODE: 0
+
+COMMAND: make build-agent-all
+mkdir -p .omo/evidence/builds
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-darwin-arm64 ./cmd/obsidian-sync-agent
+CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-darwin-amd64 ./cmd/obsidian-sync-agent
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-linux-amd64 ./cmd/obsidian-sync-agent
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-linux-arm64 ./cmd/obsidian-sync-agent
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+Scenario: artifact existence and non-zero size checks
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-darwin-arm64 bytes=6069154
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-darwin-amd64 bytes=6559024
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-linux-amd64 bytes=6430882
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-linux-arm64 bytes=5963938
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe bytes=6617600
+
+COMMAND: test -s .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe
+EXIT_CODE: 0
+
+Scenario: manual CLI surface on host-built binary
+
+COMMAND: make build-agent
+mkdir -p .omo/evidence/builds
+go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+COMMAND: .omo/evidence/builds/obsidian-sync-agent --help
+obsidian-sync-agent
+
+Usage:
+  obsidian-sync-agent --help
+  obsidian-sync-agent <command> [flags]
+
+Commands:
+  sync
+  status
+EXIT_CODE: 0
+
+COMMAND: env -i .omo/evidence/builds/obsidian-sync-agent sync --vault-root /tmp/obsidian-sync-task9-missing-config
+configuration error: server base url is required (use --server, OBSIDIAN_SYNC_AGENT_SERVER, or config file server_base_url)
+observed_exit=2
+EXIT_CODE: 0
+
+Scenario: docs checks
+
+COMMAND: rg -n 'Go로|make build-agent|make build-agent-all|Python CLI|FastAPI 서버|uv run uvicorn' README.md docs/sync-agent.md
+README.md:3:개인 Obsidian Vault를 FastAPI 서버에 동기화하고, PostgreSQL +
+README.md:105:uv run uvicorn obsidian_sync.app:app --host 0.0.0.0 --port 8000
+README.md:340:`obsidian-sync-agent`는 Go로 포팅된 로컬 클라이언트 바이너리를 기본 배포
+README.md:341:형태로 사용합니다. FastAPI 서버는 계속 Python 애플리케이션이며, Dockerfile도
+README.md:349:make build-agent
+README.md:354:타깃별 로컬 빌드 산출물이 필요하면 `make build-agent-all`을 실행합니다.
+README.md:358:되지만, Python CLI는 호환성 확인과 롤백을 위해 명시적인 제거 작업 전까지
+README.md:776:make build-agent
+README.md:777:make build-agent-all
+README.md:791:`make build-agent-all` cross-builds the Go sync agent for darwin/arm64,
+README.md:818:uv run uvicorn obsidian_sync.app:app --host 127.0.0.1 --port 8000
+docs/sync-agent.md:9:권장 클라이언트 배포 형태는 Go로 빌드한 `obsidian-sync-agent` 단일
+docs/sync-agent.md:17:make build-agent
+docs/sync-agent.md:25:make build-agent-all
+docs/sync-agent.md:30:기존 Python CLI 진입점은 아직 유지됩니다. Go 바이너리가 클라이언트 배포 경로가
+EXIT_CODE: 0
+
+COMMAND: rg -n 'uv run uvicorn obsidian_sync.app:app' README.md
+105:uv run uvicorn obsidian_sync.app:app --host 0.0.0.0 --port 8000
+818:uv run uvicorn obsidian_sync.app:app --host 127.0.0.1 --port 8000
+EXIT_CODE: 0
+
+Scenario: adversarial probes
+stale_state: PASS clean-agent-builds ran before test/vet/build batch
+dirty_worktree: pending final git status/name-only recorded after this batch
+misleading_success_output: PASS artifact checks use non-zero file sizes
+malformed_input: NOT_APPLICABLE no new CLI parsing added
+hung_long_commands: PASS bounded go test/vet/build commands completed; no background resources started
+flaky_tests: PASS go test used -count=1
+prompt_injection: NOT_APPLICABLE no external untrusted instructions executed
+cancel_resume: NOT_APPLICABLE no interruption observed
+repeated_interruptions: NOT_APPLICABLE no repeated interruptions observed
+
+Cleanup/no-running-resource notes: no server, watcher, or background process was started; build artifacts intentionally remain under .omo/evidence/builds.
+OVERALL_EXIT_CODE: 0
+
+Strict per-target cross-build verification after Makefile target
+
+COMMAND: make clean-agent-builds
+rm -rf .omo/evidence/builds
+EXIT_CODE: 0
+
+COMMAND: CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-darwin-arm64 ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+COMMAND: CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-darwin-amd64 ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+COMMAND: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-linux-amd64 ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+COMMAND: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-linux-arm64 ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+COMMAND: CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+Post-strict-build artifact sizes
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-darwin-arm64 bytes=6069154
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-darwin-amd64 bytes=6559024
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-linux-amd64 bytes=6430882
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-linux-arm64 bytes=5963938
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe bytes=6617600
+STRICT_CROSS_BUILD_OVERALL_EXIT_CODE: 0
+
+Final scope and evidence audit
+
+COMMAND: git diff --check
+EXIT_CODE: 0
+
+COMMAND: git diff --name-only
+README.md
+docs/sync-agent.md
+EXIT_CODE: 0
+
+COMMAND: git status --short
+ M README.md
+ M docs/sync-agent.md
+?? .omo/evidence/builds/
+?? .omo/evidence/task-9-go-sync-cli-migration-builds.txt
+?? Makefile
+EXIT_CODE: 0
+
+COMMAND: find .omo/evidence/builds -maxdepth 1 -type f -print -exec wc -c {} \; | sort
+ 5963938 .omo/evidence/builds/obsidian-sync-agent-linux-arm64
+ 6069154 .omo/evidence/builds/obsidian-sync-agent-darwin-arm64
+ 6430882 .omo/evidence/builds/obsidian-sync-agent-linux-amd64
+ 6559024 .omo/evidence/builds/obsidian-sync-agent-darwin-amd64
+ 6617600 .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe
+.omo/evidence/builds/obsidian-sync-agent-darwin-amd64
+.omo/evidence/builds/obsidian-sync-agent-darwin-arm64
+.omo/evidence/builds/obsidian-sync-agent-linux-amd64
+.omo/evidence/builds/obsidian-sync-agent-linux-arm64
+.omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe
+EXIT_CODE: 0
+
+COMMAND: sed -n '1,260p' .omo/evidence/task-9-go-sync-cli-migration-builds.txt
+Task 9 Go sync CLI migration build evidence
+UTC: 2026-07-10T05:57:21Z
+PWD: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+Branch: work/go-sync-cli-migration
+
+Scenario: stale_state clean rebuild after final docs/Makefile edits
+
+COMMAND: make clean-agent-builds
+rm -rf .omo/evidence/builds
+EXIT_CODE: 0
+
+COMMAND: go test -count=1 ./...
+ok  	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent	4.045s
+?   	github.com/Qulip/obsidian-sync/internal/syncagent	[no test files]
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile	3.155s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/client	4.464s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/config	0.686s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/conflict	2.289s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	3.613s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/manifest	1.460s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/obsidian	2.725s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/rules	1.900s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/scanner	1.066s
+EXIT_CODE: 0
+
+COMMAND: go vet ./...
+EXIT_CODE: 0
+
+COMMAND: make build-agent-all
+mkdir -p .omo/evidence/builds
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-darwin-arm64 ./cmd/obsidian-sync-agent
+CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-darwin-amd64 ./cmd/obsidian-sync-agent
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-linux-amd64 ./cmd/obsidian-sync-agent
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-linux-arm64 ./cmd/obsidian-sync-agent
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+Scenario: artifact existence and non-zero size checks
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-darwin-arm64 bytes=6069154
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-darwin-amd64 bytes=6559024
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-linux-amd64 bytes=6430882
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-linux-arm64 bytes=5963938
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe bytes=6617600
+
+COMMAND: test -s .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe
+EXIT_CODE: 0
+
+Scenario: manual CLI surface on host-built binary
+
+COMMAND: make build-agent
+mkdir -p .omo/evidence/builds
+go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+COMMAND: .omo/evidence/builds/obsidian-sync-agent --help
+obsidian-sync-agent
+
+Usage:
+  obsidian-sync-agent --help
+  obsidian-sync-agent <command> [flags]
+
+Commands:
+  sync
+  status
+EXIT_CODE: 0
+
+COMMAND: env -i .omo/evidence/builds/obsidian-sync-agent sync --vault-root /tmp/obsidian-sync-task9-missing-config
+configuration error: server base url is required (use --server, OBSIDIAN_SYNC_AGENT_SERVER, or config file server_base_url)
+observed_exit=2
+EXIT_CODE: 0
+
+Scenario: docs checks
+
+COMMAND: rg -n 'Go로|make build-agent|make build-agent-all|Python CLI|FastAPI 서버|uv run uvicorn' README.md docs/sync-agent.md
+README.md:3:개인 Obsidian Vault를 FastAPI 서버에 동기화하고, PostgreSQL +
+README.md:105:uv run uvicorn obsidian_sync.app:app --host 0.0.0.0 --port 8000
+README.md:340:`obsidian-sync-agent`는 Go로 포팅된 로컬 클라이언트 바이너리를 기본 배포
+README.md:341:형태로 사용합니다. FastAPI 서버는 계속 Python 애플리케이션이며, Dockerfile도
+README.md:349:make build-agent
+README.md:354:타깃별 로컬 빌드 산출물이 필요하면 `make build-agent-all`을 실행합니다.
+README.md:358:되지만, Python CLI는 호환성 확인과 롤백을 위해 명시적인 제거 작업 전까지
+README.md:776:make build-agent
+README.md:777:make build-agent-all
+README.md:791:`make build-agent-all` cross-builds the Go sync agent for darwin/arm64,
+README.md:818:uv run uvicorn obsidian_sync.app:app --host 127.0.0.1 --port 8000
+docs/sync-agent.md:9:권장 클라이언트 배포 형태는 Go로 빌드한 `obsidian-sync-agent` 단일
+docs/sync-agent.md:17:make build-agent
+docs/sync-agent.md:25:make build-agent-all
+docs/sync-agent.md:30:기존 Python CLI 진입점은 아직 유지됩니다. Go 바이너리가 클라이언트 배포 경로가
+EXIT_CODE: 0
+
+COMMAND: rg -n 'uv run uvicorn obsidian_sync.app:app' README.md
+105:uv run uvicorn obsidian_sync.app:app --host 0.0.0.0 --port 8000
+818:uv run uvicorn obsidian_sync.app:app --host 127.0.0.1 --port 8000
+EXIT_CODE: 0
+
+Scenario: adversarial probes
+stale_state: PASS clean-agent-builds ran before test/vet/build batch
+dirty_worktree: pending final git status/name-only recorded after this batch
+misleading_success_output: PASS artifact checks use non-zero file sizes
+malformed_input: NOT_APPLICABLE no new CLI parsing added
+hung_long_commands: PASS bounded go test/vet/build commands completed; no background resources started
+flaky_tests: PASS go test used -count=1
+prompt_injection: NOT_APPLICABLE no external untrusted instructions executed
+cancel_resume: NOT_APPLICABLE no interruption observed
+repeated_interruptions: NOT_APPLICABLE no repeated interruptions observed
+
+Cleanup/no-running-resource notes: no server, watcher, or background process was started; build artifacts intentionally remain under .omo/evidence/builds.
+OVERALL_EXIT_CODE: 0
+
+Strict per-target cross-build verification after Makefile target
+
+COMMAND: make clean-agent-builds
+rm -rf .omo/evidence/builds
+EXIT_CODE: 0
+
+COMMAND: CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-darwin-arm64 ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+COMMAND: CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-darwin-amd64 ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+COMMAND: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-linux-amd64 ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+COMMAND: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-linux-arm64 ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+COMMAND: CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+Post-strict-build artifact sizes
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-darwin-arm64 bytes=6069154
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-darwin-amd64 bytes=6559024
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-linux-amd64 bytes=6430882
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-linux-arm64 bytes=5963938
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe bytes=6617600
+STRICT_CROSS_BUILD_OVERALL_EXIT_CODE: 0
+
+Final scope and evidence audit
+
+COMMAND: git diff --check
+EXIT_CODE: 0
+
+COMMAND: git diff --name-only
+README.md
+docs/sync-agent.md
+EXIT_CODE: 0
+
+COMMAND: git status --short
+ M README.md
+ M docs/sync-agent.md
+?? .omo/evidence/builds/
+?? .omo/evidence/task-9-go-sync-cli-migration-builds.txt
+?? Makefile
+EXIT_CODE: 0
+
+COMMAND: find .omo/evidence/builds -maxdepth 1 -type f -print -exec wc -c {} \; | sort
+ 5963938 .omo/evidence/builds/obsidian-sync-agent-linux-arm64
+ 6069154 .omo/evidence/builds/obsidian-sync-agent-darwin-arm64
+ 6430882 .omo/evidence/builds/obsidian-sync-agent-linux-amd64
+ 6559024 .omo/evidence/builds/obsidian-sync-agent-darwin-amd64
+ 6617600 .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe
+.omo/evidence/builds/obsidian-sync-agent-darwin-amd64
+.omo/evidence/builds/obsidian-sync-agent-darwin-arm64
+.omo/evidence/builds/obsidian-sync-agent-linux-amd64
+.omo/evidence/builds/obsidian-sync-agent-linux-arm64
+.omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe
+EXIT_CODE: 0
+
+COMMAND: sed -n '1,260p' .omo/evidence/task-9-go-sync-cli-migration-builds.txt
+Task 9 Go sync CLI migration build evidence
+UTC: 2026-07-10T05:57:21Z
+PWD: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+Branch: work/go-sync-cli-migration
+
+Scenario: stale_state clean rebuild after final docs/Makefile edits
+
+COMMAND: make clean-agent-builds
+rm -rf .omo/evidence/builds
+EXIT_CODE: 0
+
+COMMAND: go test -count=1 ./...
+ok  	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent	4.045s
+?   	github.com/Qulip/obsidian-sync/internal/syncagent	[no test files]
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile	3.155s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/client	4.464s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/config	0.686s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/conflict	2.289s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	3.613s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/manifest	1.460s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/obsidian	2.725s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/rules	1.900s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/scanner	1.066s
+EXIT_CODE: 0
+
+COMMAND: go vet ./...
+EXIT_CODE: 0
+
+COMMAND: make build-agent-all
+mkdir -p .omo/evidence/builds
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-darwin-arm64 ./cmd/obsidian-sync-agent
+CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-darwin-amd64 ./cmd/obsidian-sync-agent
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-linux-amd64 ./cmd/obsidian-sync-agent
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-linux-arm64 ./cmd/obsidian-sync-agent
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+Scenario: artifact existence and non-zero size checks
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-darwin-arm64 bytes=6069154
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-darwin-amd64 bytes=6559024
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-linux-amd64 bytes=6430882
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-linux-arm64 bytes=5963938
+ARTIFACT_OK: .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe bytes=6617600
+
+COMMAND: test -s .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe
+EXIT_CODE: 0
+
+Scenario: manual CLI surface on host-built binary
+
+COMMAND: make build-agent
+mkdir -p .omo/evidence/builds
+go build -trimpath -ldflags "-s -w" -o .omo/evidence/builds/obsidian-sync-agent ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+
+COMMAND: .omo/evidence/builds/obsidian-sync-agent --help
+obsidian-sync-agent
+
+Usage:
+  obsidian-sync-agent --help
+  obsidian-sync-agent <command> [flags]
+
+Commands:
+  sync
+  status
+EXIT_CODE: 0
+
+COMMAND: env -i .omo/evidence/builds/obsidian-sync-agent sync --vault-root /tmp/obsidian-sync-task9-missing-config
+configuration error: server base url is required (use --server, OBSIDIAN_SYNC_AGENT_SERVER, or config file server_base_url)
+observed_exit=2
+EXIT_CODE: 0
+
+Scenario: docs checks
+
+COMMAND: rg -n 'Go로|make build-agent|make build-agent-all|Python CLI|FastAPI 서버|uv run uvicorn' README.md docs/sync-agent.md
+README.md:3:개인 Obsidian Vault를 FastAPI 서버에 동기화하고, PostgreSQL +
+README.md:105:uv run uvicorn obsidian_sync.app:app --host 0.0.0.0 --port 8000
+README.md:340:`obsidian-sync-agent`는 Go로 포팅된 로컬 클라이언트 바이너리를 기본 배포
+README.md:341:형태로 사용합니다. FastAPI 서버는 계속 Python 애플리케이션이며, Dockerfile도
+README.md:349:make build-agent
+README.md:354:타깃별 로컬 빌드 산출물이 필요하면 `make build-agent-all`을 실행합니다.
+README.md:358:되지만, Python CLI는 호환성 확인과 롤백을 위해 명시적인 제거 작업 전까지
+README.md:776:make build-agent
+README.md:777:make build-agent-all
+README.md:791:`make build-agent-all` cross-builds the Go sync agent for darwin/arm64,
+README.md:818:uv run uvicorn obsidian_sync.app:app --host 127.0.0.1 --port 8000
+docs/sync-agent.md:9:권장 클라이언트 배포 형태는 Go로 빌드한 `obsidian-sync-agent` 단일
+docs/sync-agent.md:17:make build-agent
+docs/sync-agent.md:25:make build-agent-all
+docs/sync-agent.md:30:기존 Python CLI 진입점은 아직 유지됩니다. Go 바이너리가 클라이언트 배포 경로가
+EXIT_CODE: 0
+FINAL_AUDIT_OVERALL_EXIT_CODE: 0
+
+Review/debugging gate availability
+review-work: INCONCLUSIVE_UNAVAILABLE multi_agent_v1 tools are not exposed; tool_search returned no multi_agent_v1 tools. Performed local audit instead.
+debugging-runtime-audit: direct CLI/build artifact audit; no debugger attached and no background process started.
+
+COMMAND: go version
+go version go1.26.5 darwin/arm64
+EXIT_CODE: 0
+
+COMMAND: file .omo/evidence/builds/obsidian-sync-agent-*
+.omo/evidence/builds/obsidian-sync-agent-darwin-amd64:      Mach-O 64-bit executable x86_64
+.omo/evidence/builds/obsidian-sync-agent-darwin-arm64:      Mach-O 64-bit executable arm64
+.omo/evidence/builds/obsidian-sync-agent-linux-amd64:       ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, Go BuildID=bULYa79SrnoKElCSk7iW/CU1RO9b8wMmTItHW4XHL/8CoVfEFr60bM0ArtoxFf/RIWQKxBVBxK8gVB35YOU, BuildID[sha1]=ba2e050751a7a2854e1c795d0364312ff6a975da, stripped
+.omo/evidence/builds/obsidian-sync-agent-linux-arm64:       ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, Go BuildID=OV1mkq6tEOMUxxeepKGY/sWdADw9PPRndWD-YHcbp/ao4EIaL35IFxvQt-opTY/CXpZ1O7pVgQCZbX-Edz_, BuildID[sha1]=85e73f979dd037892e39090e0b6966a462a17ed4, stripped
+.omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe: PE32+ executable (console) x86-64, for MS Windows
+EXIT_CODE: 0
+
+COMMAND: rg -n 'recover\(\)' cmd internal --glob '*.go'
+EXIT_CODE: 0
+
+COMMAND: rg -n 'DEBUG|TODO DEBUG|breakpoint\(|fmt\.Println\("DEBUG|HACK|XXX' README.md docs/sync-agent.md Makefile cmd internal
+EXIT_CODE: 0
+
+COMMAND: git diff --stat
+ README.md          | 38 +++++++++++++++++++++++++++++++++-----
+ docs/sync-agent.md | 27 ++++++++++++++++++++++++++-
+ 2 files changed, 59 insertions(+), 6 deletions(-)
+EXIT_CODE: 0
+
+Debugging hypotheses with runtime evidence
+H1 stale build artifacts could mask failed target builds: REJECTED by make clean-agent-builds exit 0, five per-target go build exits 0, and post-build non-zero byte counts.
+H2 Windows .exe build could silently produce an empty or non-Windows artifact: REJECTED by explicit windows/amd64 build exit 0, test -s exit 0, bytes=6617600, and file classification recorded above.
+H3 CLI surface could be unusable despite successful builds: REJECTED by host build exit 0, --help exit 0 with command list, and missing-config path observed_exit=2.
+H4 docs could accidentally displace Python server instructions: REJECTED by README uvicorn grep exit 0 and docs grep showing Go/Python coexistence text.
+LOCAL_REVIEW_DEBUG_AUDIT_EXIT_CODE: 0

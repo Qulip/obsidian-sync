@@ -1,0 +1,62 @@
+SURFACE: existing live FastAPI sync transcript inspection
+INVOCATION: rg -n -i "create|update|delete|conflict|resolved|status|dry-run|cleanup" .omo/evidence/task-8-go-sync-cli-migration-live-sync.txt
+   14041 .omo/evidence/task-8-go-sync-cli-migration-live-sync.txt
+6:exit_code=0
+10:exit_code=0
+17:alembic_upgrade_head=PASS exit_code=0
+22:create_vault_status=200
+23:scenario=create_push_from_a
+25:exit_code=0
+27:pulled=1 applied=0 locally_deleted=0 pushed=1 remotely_deleted=0 conflicts=0 warnings=0
+29:changes_status_after_create=200
+30:changes_body_after_create:
+31:{"data": {"changes": [{"content_hash": "2be510df8dce519e7a335a010ba7d7c20df61f30c851c446852a04197814e05a", "created_at": "2026-07-10T01:20:38.507854", "deleted": false, "event_type": "CREATE", "path": "JPA.md", "revision": 1}], "from_cursor": 0, "to_cursor": 1, "vault_id": "task8-go-live"}, "error": null, "success": true}
+33:exit_code=0
+35:pulled=1 applied=1 locally_deleted=0 pushed=0 remotely_deleted=0 conflicts=0 warnings=0
+37:assert_create_pull_content=PASS value='v1 from A'
+38:scenario=update_and_conflict
+40:exit_code=0
+42:pulled=1 applied=0 locally_deleted=0 pushed=1 remotely_deleted=0 conflicts=0 warnings=0
+45:exit_code=1
+47:pulled=1 applied=0 locally_deleted=0 pushed=0 remotely_deleted=0 conflicts=1 warnings=0
+48:conflict: JPA.md (a .conflict copy was written)
+49:sync completed with 1 conflict(s); review the .conflict files
+50:conflict_files=['JPA.conflict.devb.20260710-012038.md']
+51:assert_conflict_contains_local=PASS value=True
+52:assert_conflict_contains_server=PASS value=True
+54:scenario=resolved_conflict
+56:exit_code=0
+58:pulled=1 applied=0 locally_deleted=0 pushed=1 remotely_deleted=0 conflicts=0 warnings=0
+60:assert_server_resolved_content=PASS value='resolved from A and B'
+62:exit_code=0
+64:pulled=1 applied=1 locally_deleted=0 pushed=0 remotely_deleted=0 conflicts=0 warnings=0
+66:assert_resolved_pulled_to_a=PASS value='resolved from A and B'
+67:scenario=delete_propagation
+69:exit_code=0
+71:pulled=1 applied=0 locally_deleted=0 pushed=1 remotely_deleted=0 conflicts=0 warnings=0
+74:exit_code=0
+76:pulled=1 applied=1 locally_deleted=0 pushed=0 remotely_deleted=0 conflicts=0 warnings=0
+80:exit_code=0
+82:pulled=1 applied=0 locally_deleted=0 pushed=0 remotely_deleted=1 conflicts=0 warnings=0
+85:exit_code=0
+87:pulled=1 applied=0 locally_deleted=1 pushed=0 remotely_deleted=0 conflicts=0 warnings=0
+89:assert_note2_deleted_from_b=PASS value=False
+90:assert_note2_server_get_status=PASS value=404
+91:assert_note2_db_deleted=PASS value=[True]
+92:scenario=status
+93:$ /usr/bin/perl -e alarm 30; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent status --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-a --device-id deva
+94:exit_code=0
+100:open_conflicts=0
+104:status_output_fields=PASS
+106:$ /usr/bin/perl -e alarm 60; exec @ARGV /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:57782 --vault-id task8-go-live --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl/vault-a --device-id deva --dry-run
+107:exit_code=0
+109:DRY RUN: pulled=0 applied=0 locally_deleted=0 pushed=1 remotely_deleted=0 conflicts=0 warnings=0
+112:cleanup_uvicorn=terminated pid 54735 exit 143
+113:cleanup_docker_rm_exit=0
+114:cleanup_docker_rm_stdout=obsidian-sync-task8-pg-54709
+168:INFO:     127.0.0.1:57802 - "DELETE /vaults/task8-go-live/files/note2.md HTTP/1.1" 200 OK
+176:INFO:     127.0.0.1:57806 - "GET /vaults/task8-go-live/sync/status?device_id=deva HTTP/1.1" 200 OK
+178:INFO:     127.0.0.1:57808 - "GET /vaults/task8-go-live/files/dry-run-only.md HTTP/1.1" 404 Not Found
+184:cleanup_runtime_root_removed=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl
+185:cleanup_notes=docker rm -f obsidian-sync-task8-pg-54709; terminate uvicorn if started; remove runtime root
+EXIT_CODE: 0

@@ -1,7 +1,7 @@
 .PHONY: build-agent build-agent-all clean-agent-builds
 
 AGENT_PKG := ./cmd/obsidian-sync-agent
-BUILD_DIR := .omo/evidence/builds
+BUILD_DIR := dist/obsidian-sync-agent
 GO_BUILD_FLAGS := -trimpath -ldflags "-s -w"
 
 build-agent:

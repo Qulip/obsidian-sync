@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Qulip/obsidian-sync/internal/syncagent/vaultfs"
 )
 
 const (
@@ -79,11 +81,11 @@ func destinationPath(req Request, moment time.Time) (string, error) {
 	if filepath.IsAbs(cleanRelative) || cleanRelative == ".." || strings.HasPrefix(cleanRelative, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("conflict path escapes vault: %s", req.Path)
 	}
-	root, err := filepath.Abs(req.VaultRoot)
+	destination, err := vaultfs.SafePath(req.VaultRoot, relative)
 	if err != nil {
-		return "", fmt.Errorf("resolve vault root: %w", err)
+		return "", fmt.Errorf("resolve conflict path: %w", err)
 	}
-	return filepath.Join(root, cleanRelative), nil
+	return destination, nil
 }
 
 type existingConflictQuery struct {
@@ -103,7 +105,7 @@ func findExisting(query existingConflictQuery) (string, error) {
 	}
 	prefix := fmt.Sprintf("%s.conflict.%s.", query.stem, query.deviceID)
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 			continue
 		}
 		name := entry.Name()

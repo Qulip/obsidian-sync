@@ -5,29 +5,20 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/Qulip/obsidian-sync/internal/syncagent/rules"
+	"github.com/Qulip/obsidian-sync/internal/syncagent/vaultfs"
 )
 
 func vaultPath(root string, rel string) (string, bool) {
-	if !rules.ShouldSync(rel) || filepath.IsAbs(rel) {
+	if !rules.ShouldSync(rel) {
 		return "", false
 	}
-	clean := filepath.Clean(filepath.FromSlash(rel))
-	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	absoluteRoot, err := filepath.Abs(root)
-	if err != nil {
-		return "", false
-	}
-	return filepath.Join(absoluteRoot, clean), true
+	return vaultfs.LexicalPath(root, rel)
 }
 
 func existsPath(path string) bool {
-	_, err := os.Stat(path)
+	_, err := os.Lstat(path)
 	return err == nil
 }
 

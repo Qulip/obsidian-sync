@@ -1,0 +1,4 @@
+SURFACE: built Go CLI binary
+INVOCATION: .omo/evidence/obsidian-sync-agent
+the following arguments are required: command
+EXIT_CODE: 2

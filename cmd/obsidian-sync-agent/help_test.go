@@ -95,11 +95,14 @@ func TestRun_printsDoubleDashHelp_whenCommandHelpRequested(t *testing.T) {
 			if code != exitOK {
 				t.Fatalf("exit code = %d, want %d", code, exitOK)
 			}
-			help := stderr.String()
+			help := stdout.String()
 			for _, flag := range tt.wantFlags {
 				if !strings.Contains(help, flag) {
 					t.Fatalf("help for %s missing %s:\n%s", tt.name, flag, help)
 				}
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("stderr = %q", stderr.String())
 			}
 		})
 	}

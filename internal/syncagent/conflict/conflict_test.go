@@ -155,3 +155,36 @@ func TestWriteConflictFile_writesDeletedPlaceholders_whenContentUsesPlaceholders
 		t.Fatalf("conflict body missing server deleted placeholder:\n%s", text)
 	}
 }
+
+func TestWriteConflictFile_rejectsSymlinkedParent_whenTargetIsOutsideVault(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	outsideRoot := t.TempDir()
+	if err := os.Symlink(outsideRoot, filepath.Join(root, "notes")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	// When
+	_, err := WriteFile(Request{
+		VaultRoot:          root,
+		Path:               "notes/JPA.md",
+		DeviceID:           "laptop",
+		ClientBaseRevision: 2,
+		ServerRevision:     3,
+		LocalContent:       "LOCAL BODY",
+		ServerContent:      "SERVER BODY",
+		Now:                time.Date(2026, 7, 7, 12, 30, 45, 0, time.UTC),
+	})
+
+	// Then
+	if err == nil {
+		t.Fatal("WriteFile() error = nil, want symlink rejection")
+	}
+	matches, globErr := filepath.Glob(filepath.Join(outsideRoot, "*.conflict.*.md"))
+	if globErr != nil {
+		t.Fatalf("glob outside conflict files: %v", globErr)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("outside conflict files were written: %#v", matches)
+	}
+}

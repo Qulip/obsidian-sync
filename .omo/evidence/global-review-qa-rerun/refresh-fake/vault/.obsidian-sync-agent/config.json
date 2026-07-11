@@ -1,0 +1,10 @@
+{
+  "server_base_url": "http://127.0.0.1:64903",
+  "vault_id": "qa-rerun",
+  "device_id": "qa-device",
+  "obsidian": {
+    "enabled": true,
+    "base_url": "http://127.0.0.1:64903",
+    "reload_command": true
+  }
+}

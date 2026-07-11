@@ -1,0 +1,9 @@
+surface: terminal CLI + fake HTTP server
+server_invocation: python3 .omo/evidence/global-review-qa-rerun/fake_sync_obsidian_server.py
+server_pid=92190
+server_port=64903
+invocation: env HOME=/Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/global-review-qa-rerun/refresh-fake/home XDG_CONFIG_HOME=/Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/global-review-qa-rerun/refresh-fake/config OBSIDIAN_LOCAL_REST_API_KEY= /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/dist/obsidian-sync-agent/obsidian-sync-agent sync --vault-root /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/global-review-qa-rerun/refresh-fake/vault --require-obsidian-refresh
+exit_code=3
+stdout_bytes=       0
+stderr_bytes=     176
+cleanup: killed fake server pid 92190

@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -139,10 +140,9 @@ func (r *syncRun) pushDelete(path string) error {
 func (r *syncRun) pushConflict(file pushFile) error {
 	serverRevision := intDetail(file.conflictErr.Details["server_revision"])
 	clientBase := intDetail(file.conflictErr.Details["client_base_revision"])
-	serverContent := conflict.ServerDeletedPlaceholder
-	serverFile, err := r.syncClient.GetFile(r.ctx, client.FileRef{VaultID: r.cfg.VaultID, Path: file.path})
-	if err == nil {
-		serverContent = serverFile.Content
+	serverContent, err := r.serverContentAfterConflict(file.path)
+	if err != nil {
+		return err
 	}
 	if _, err := conflict.WriteFile(conflict.Request{
 		VaultRoot:          r.cfg.VaultRoot,
@@ -158,4 +158,19 @@ func (r *syncRun) pushConflict(file pushFile) error {
 	}
 	r.summary.Conflicts = append(r.summary.Conflicts, file.path)
 	return nil
+}
+
+func (r *syncRun) serverContentAfterConflict(path string) (string, error) {
+	serverFile, err := r.syncClient.GetFile(r.ctx, client.FileRef{VaultID: r.cfg.VaultID, Path: path})
+	if err == nil {
+		if serverFile.Deleted {
+			return conflict.ServerDeletedPlaceholder, nil
+		}
+		return serverFile.Content, nil
+	}
+	var apiErr *client.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
+		return conflict.ServerDeletedPlaceholder, nil
+	}
+	return "", fmt.Errorf("%w: get server file %s after conflict: %w", ErrSync, path, err)
 }

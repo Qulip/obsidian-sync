@@ -35,6 +35,9 @@ func ScanVault(vaultRoot string) (map[string]ScannedFile, error) {
 		if walkErr != nil {
 			return walkErr
 		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
 		if entry.IsDir() {
 			if path != root && rules.IsIgnoredDir(entry.Name()) {
 				return filepath.SkipDir

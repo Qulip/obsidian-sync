@@ -71,8 +71,16 @@ type commandSpec struct {
 	includeSyncFlags bool
 }
 
+type commandIO struct {
+	stdout io.Writer
+	stderr io.Writer
+}
+
 func runStatus(args []string, stdout io.Writer, stderr io.Writer) int {
-	options, ok := parseCommand(commandSpec{name: "status"}, args, stderr)
+	options, ok := parseCommand(commandSpec{name: "status"}, args, commandIO{
+		stdout: stdout,
+		stderr: stderr,
+	})
 	if !ok {
 		return exitError
 	}
@@ -91,8 +99,11 @@ func runStatus(args []string, stdout io.Writer, stderr io.Writer) int {
 	return exitOK
 }
 
-func runSync(args []string, _ io.Writer, stderr io.Writer) int {
-	options, ok := parseCommand(commandSpec{name: "sync", includeSyncFlags: true}, args, stderr)
+func runSync(args []string, stdout io.Writer, stderr io.Writer) int {
+	options, ok := parseCommand(commandSpec{name: "sync", includeSyncFlags: true}, args, commandIO{
+		stdout: stdout,
+		stderr: stderr,
+	})
 	if !ok {
 		return exitError
 	}
@@ -125,12 +136,12 @@ func runSync(args []string, _ io.Writer, stderr io.Writer) int {
 	return exitOK
 }
 
-func parseCommand(spec commandSpec, args []string, stderr io.Writer) (commandOptions, bool) {
+func parseCommand(spec commandSpec, args []string, stdio commandIO) (commandOptions, bool) {
 	var options commandOptions
 	flags := flag.NewFlagSet(spec.name, flag.ContinueOnError)
-	flags.SetOutput(stderr)
+	flags.SetOutput(stdio.stderr)
 	flags.Usage = func() {
-		printCommandHelp(stderr, spec)
+		printCommandHelp(stdio.stderr, spec)
 	}
 	flags.StringVar(&options.vaultRoot, "vault-root", "", "local vault directory")
 	flags.StringVar(&options.vaultID, "vault-id", "", "server vault id")
@@ -141,6 +152,13 @@ func parseCommand(spec commandSpec, args []string, stderr io.Writer) (commandOpt
 		flags.BoolVar(&options.dryRun, "dry-run", false, "print planned actions without writing or pushing")
 		flags.BoolVar(&options.requireObsidianRefresh, "require-obsidian-refresh", false, "exit non-zero if the Obsidian refresh step fails")
 	}
+	for _, arg := range args {
+		if arg == "--help" || arg == "-h" || arg == "-help" {
+			printCommandHelp(stdio.stdout, spec)
+			options.helpRequested = true
+			return options, true
+		}
+	}
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			options.helpRequested = true
@@ -149,7 +167,7 @@ func parseCommand(spec commandSpec, args []string, stderr io.Writer) (commandOpt
 		return commandOptions{}, false
 	}
 	if flags.NArg() != 0 {
-		fmt.Fprintf(stderr, "%s %s: unexpected argument %q\n", commandName, spec.name, flags.Arg(0))
+		fmt.Fprintf(stdio.stderr, "%s %s: unexpected argument %q\n", commandName, spec.name, flags.Arg(0))
 		return commandOptions{}, false
 	}
 	return options, true

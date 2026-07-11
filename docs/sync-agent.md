@@ -15,7 +15,7 @@
 
 ```bash
 make build-agent
-install .omo/evidence/builds/obsidian-sync-agent /usr/local/bin/obsidian-sync-agent
+install dist/obsidian-sync-agent/obsidian-sync-agent /usr/local/bin/obsidian-sync-agent
 obsidian-sync-agent --help
 ```
 
@@ -25,7 +25,7 @@ obsidian-sync-agent --help
 make build-agent-all
 ```
 
-산출물은 `.omo/evidence/builds/` 아래에 생성됩니다.
+산출물은 git에서 무시되는 `dist/obsidian-sync-agent/` 아래에 생성됩니다.
 
 기존 Python CLI 진입점은 아직 유지됩니다. Go 바이너리가 클라이언트 배포 경로가
 되지만, Python `obsidian-sync-agent` 콘솔 스크립트는 명시적인 제거 작업 전까지

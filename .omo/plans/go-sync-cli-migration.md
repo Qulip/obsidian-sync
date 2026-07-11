@@ -69,12 +69,12 @@ Your next move: run `$start-work` or ask for a high-accuracy plan review first. 
   - `uv run pytest tests/test_sync_api.py tests/test_sync_agent_integration.py` when local PostgreSQL is available.
 - Go verification commands:
   - `go test ./...`
-  - `go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent`
-  - `GOOS=darwin GOARCH=arm64 go build -o .omo/evidence/builds/obsidian-sync-agent-darwin-arm64 ./cmd/obsidian-sync-agent`
-  - `GOOS=darwin GOARCH=amd64 go build -o .omo/evidence/builds/obsidian-sync-agent-darwin-amd64 ./cmd/obsidian-sync-agent`
-  - `GOOS=linux GOARCH=amd64 go build -o .omo/evidence/builds/obsidian-sync-agent-linux-amd64 ./cmd/obsidian-sync-agent`
-  - `GOOS=linux GOARCH=arm64 go build -o .omo/evidence/builds/obsidian-sync-agent-linux-arm64 ./cmd/obsidian-sync-agent`
-  - `GOOS=windows GOARCH=amd64 go build -o .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe ./cmd/obsidian-sync-agent`
+  - `go build -o dist/obsidian-sync-agent/obsidian-sync-agent ./cmd/obsidian-sync-agent`
+  - `GOOS=darwin GOARCH=arm64 go build -o dist/obsidian-sync-agent/obsidian-sync-agent-darwin-arm64 ./cmd/obsidian-sync-agent`
+  - `GOOS=darwin GOARCH=amd64 go build -o dist/obsidian-sync-agent/obsidian-sync-agent-darwin-amd64 ./cmd/obsidian-sync-agent`
+  - `GOOS=linux GOARCH=amd64 go build -o dist/obsidian-sync-agent/obsidian-sync-agent-linux-amd64 ./cmd/obsidian-sync-agent`
+  - `GOOS=linux GOARCH=arm64 go build -o dist/obsidian-sync-agent/obsidian-sync-agent-linux-arm64 ./cmd/obsidian-sync-agent`
+  - `GOOS=windows GOARCH=amd64 go build -o dist/obsidian-sync-agent/obsidian-sync-agent-windows-amd64.exe ./cmd/obsidian-sync-agent`
 - Real-surface CLI QA:
   - happy path: run the built binary against a live local FastAPI test server and sync two temporary vaults through create/update/delete/conflict flows; evidence transcript at `.omo/evidence/task-8-go-sync-cli-migration-live-sync.txt`.
   - failure path: run the built binary with missing `--server`/env/config and assert exit code `2` plus configuration error; evidence transcript at `.omo/evidence/task-8-go-sync-cli-migration-config-error.txt`.
@@ -116,8 +116,8 @@ Your next move: run `$start-work` or ask for a high-accuracy plan review first. 
   What to do / Must NOT do: Add root `go.mod`; create `cmd/obsidian-sync-agent/main.go`; create package directories under `internal/syncagent/` with minimal compilable package files and package-level docs where helpful. Do not add third-party dependencies unless a concrete need is proven.
   Parallelization: Wave 1 | Blocked by: none | Blocks: 3, 4, 5, 6, 7, 8, 9
   References (executor has NO interview context - be exhaustive): `pyproject.toml:18-20` for existing command names; `src/obsidian_sync/sync_agent/__init__.py:1` for client identity; Go module layout guidance; current repo root structure.
-  Acceptance criteria (agent-executable): `go test ./...` exits 0; `go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent` exits 0; `.omo/evidence/obsidian-sync-agent --help` exits 0 and identifies `obsidian-sync-agent`.
-  QA scenarios (name the exact tool + invocation): happy: `.omo/evidence/obsidian-sync-agent --help > .omo/evidence/task-2-go-sync-cli-migration-help.txt` and PASS if it prints `obsidian-sync-agent`; failure: `.omo/evidence/obsidian-sync-agent unknown` and PASS if exit code is non-zero and stderr identifies an unknown command, evidence `.omo/evidence/task-2-go-sync-cli-migration-unknown-command.txt`.
+  Acceptance criteria (agent-executable): `go test ./...` exits 0; `go build -o dist/obsidian-sync-agent/obsidian-sync-agent ./cmd/obsidian-sync-agent` exits 0; `dist/obsidian-sync-agent/obsidian-sync-agent --help` exits 0 and identifies `obsidian-sync-agent`.
+  QA scenarios (name the exact tool + invocation): happy: `dist/obsidian-sync-agent/obsidian-sync-agent --help > .omo/evidence/task-2-go-sync-cli-migration-help.txt` and PASS if it prints `obsidian-sync-agent`; failure: `dist/obsidian-sync-agent/obsidian-sync-agent unknown` and PASS if exit code is non-zero and stderr identifies an unknown command, evidence `.omo/evidence/task-2-go-sync-cli-migration-unknown-command.txt`.
   Commit: Y | `build(go): add sync agent module skeleton`
 
 - [x] 3. Port configuration loading and CLI/env/file precedence.
@@ -125,7 +125,7 @@ Your next move: run `$start-work` or ask for a high-accuracy plan review first. 
   Parallelization: Wave 2 | Blocked by: 1, 2 | Blocks: 7, 8
   References (executor has NO interview context - be exhaustive): `src/obsidian_sync/sync_agent/config.py:8-184`; `tests/sync_agent/test_config.py:18-104`; `docs/sync-agent.md:32-72`; `README.md:350-397`.
   Acceptance criteria (agent-executable): `go test ./internal/syncagent/config ./cmd/obsidian-sync-agent` exits 0 with tests for file-only, env-over-file, CLI-over-env, token env-only, missing required server/vault errors, device ID sanitization, Obsidian API key env, and require-refresh override.
-  QA scenarios (name the exact tool + invocation): happy: create a temp vault config file and run `.omo/evidence/obsidian-sync-agent status --vault-root "$TMP_VAULT" --server http://127.0.0.1:9 --vault-id cli-vault --device-id cli-device`, PASS if config layer selects CLI values before network failure; failure: run `env -i .omo/evidence/obsidian-sync-agent status --vault-root "$TMP_VAULT"` with no config, PASS if exit code is `2` and message names missing server base URL, evidence `.omo/evidence/task-3-go-sync-cli-migration-config.txt`.
+  QA scenarios (name the exact tool + invocation): happy: create a temp vault config file and run `dist/obsidian-sync-agent/obsidian-sync-agent status --vault-root "$TMP_VAULT" --server http://127.0.0.1:9 --vault-id cli-vault --device-id cli-device`, PASS if config layer selects CLI values before network failure; failure: run `env -i dist/obsidian-sync-agent/obsidian-sync-agent status --vault-root "$TMP_VAULT"` with no config, PASS if exit code is `2` and message names missing server base URL, evidence `.omo/evidence/task-3-go-sync-cli-migration-config.txt`.
   Commit: Y | `feat(sync-agent): port configuration resolution to go`
 
 - [x] 4. Port manifest, atomic file writes, ignore rules, scanner, and hashing.
@@ -164,8 +164,8 @@ Your next move: run `$start-work` or ask for a high-accuracy plan review first. 
   What to do / Must NOT do: Wire `cmd/obsidian-sync-agent` to config, engine, logging, subcommands, flags, stdout/stderr behavior, and exit codes. Build the binary and drive it against a live local FastAPI test server. Do not remove Python CLI yet.
   Parallelization: Wave 3 | Blocked by: 7 | Blocks: 9
   References (executor has NO interview context - be exhaustive): `src/obsidian_sync/sync_agent/cli.py:1-117`; `tests/test_sync_agent_integration.py:67-263`; `README.md:371-408`; `docs/sync-agent.md:16-31`; `docs/sync-agent.md:340-356`.
-  Acceptance criteria (agent-executable): `go test ./...` exits 0; `go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent` exits 0; live QA script or pytest fixture syncs two temp vaults through create, update, delete, conflict, resolved conflict, status, and dry-run; missing config exits 2; conflict exits 1; require-refresh failure exits 3.
-  QA scenarios (name the exact tool + invocation): happy: start server with `uv run uvicorn obsidian_sync.app:app --host 127.0.0.1 --port <free-port>` using the test database setup from `tests/test_sync_agent_integration.py`, then run `.omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:<port> --vault-id <test-vault> --vault-root <tmp-vault-a> --device-id deva`; PASS if a note created in vault A appears through server sync in vault B and transcript is saved to `.omo/evidence/task-8-go-sync-cli-migration-live-sync.txt`; failure: run `.omo/evidence/obsidian-sync-agent sync --vault-root <tmp-vault>` with no server/vault config, PASS if exit code is `2`, evidence `.omo/evidence/task-8-go-sync-cli-migration-config-error.txt`.
+  Acceptance criteria (agent-executable): `go test ./...` exits 0; `go build -o dist/obsidian-sync-agent/obsidian-sync-agent ./cmd/obsidian-sync-agent` exits 0; live QA script or pytest fixture syncs two temp vaults through create, update, delete, conflict, resolved conflict, status, and dry-run; missing config exits 2; conflict exits 1; require-refresh failure exits 3.
+  QA scenarios (name the exact tool + invocation): happy: start server with `uv run uvicorn obsidian_sync.app:app --host 127.0.0.1 --port <free-port>` using the test database setup from `tests/test_sync_agent_integration.py`, then run `dist/obsidian-sync-agent/obsidian-sync-agent sync --server http://127.0.0.1:<port> --vault-id <test-vault> --vault-root <tmp-vault-a> --device-id deva`; PASS if a note created in vault A appears through server sync in vault B and transcript is saved to `.omo/evidence/task-8-go-sync-cli-migration-live-sync.txt`; failure: run `dist/obsidian-sync-agent/obsidian-sync-agent sync --vault-root <tmp-vault>` with no server/vault config, PASS if exit code is `2`, evidence `.omo/evidence/task-8-go-sync-cli-migration-config-error.txt`.
   Commit: Y | `feat(sync-agent): wire go cli and prove live parity`
 
 - [x] 9. Update documentation and add cross-platform release/build automation.
@@ -173,7 +173,7 @@ Your next move: run `$start-work` or ask for a high-accuracy plan review first. 
   Parallelization: Wave 4 | Blocked by: 8 | Blocks: final verification
   References (executor has NO interview context - be exhaustive): `README.md:340-408`; `README.md:761-790`; `docs/sync-agent.md:1-31`; `pyproject.toml:18-20`; root `Dockerfile` for server-only context; Go cross-build commands in this plan.
   Acceptance criteria (agent-executable): docs contain a Go binary install/run section, Python server instructions remain intact, and cross-build commands below exit 0 for all target triples.
-  QA scenarios (name the exact tool + invocation): happy: run all cross-build commands listed in Verification strategy and PASS if each artifact exists under `.omo/evidence/builds`; failure: run the Windows binary build command with `.exe` output and PASS if the output file exists and has non-zero size, evidence `.omo/evidence/task-9-go-sync-cli-migration-builds.txt`.
+  QA scenarios (name the exact tool + invocation): happy: run all cross-build commands listed in Verification strategy and PASS if each artifact exists under `dist/obsidian-sync-agent`; failure: run the Windows binary build command with `.exe` output and PASS if the output file exists and has non-zero size, evidence `.omo/evidence/task-9-go-sync-cli-migration-builds.txt`.
   Commit: Y | `docs(sync-agent): document go binary distribution`
 
 ## Final verification wave

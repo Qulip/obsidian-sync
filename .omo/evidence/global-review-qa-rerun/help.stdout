@@ -1,0 +1,9 @@
+obsidian-sync-agent
+
+Usage:
+  obsidian-sync-agent --help
+  obsidian-sync-agent <command> [flags]
+
+Commands:
+  sync
+  status

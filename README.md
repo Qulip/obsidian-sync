@@ -347,12 +347,12 @@ the service attempts to restore the previous file state.
 
 ```bash
 make build-agent
-install .omo/evidence/builds/obsidian-sync-agent /usr/local/bin/obsidian-sync-agent
+install dist/obsidian-sync-agent/obsidian-sync-agent /usr/local/bin/obsidian-sync-agent
 obsidian-sync-agent --help
 ```
 
 타깃별 로컬 빌드 산출물이 필요하면 `make build-agent-all`을 실행합니다.
-산출물은 `.omo/evidence/builds/` 아래에 생성됩니다.
+산출물은 git에서 무시되는 `dist/obsidian-sync-agent/` 아래에 생성됩니다.
 
 기존 Python 콘솔 스크립트도 아직 유지됩니다. Go 바이너리가 배포/운영 경로가
 되지만, Python CLI는 호환성 확인과 롤백을 위해 명시적인 제거 작업 전까지

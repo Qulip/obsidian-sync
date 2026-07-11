@@ -1,0 +1,5 @@
+surface: terminal CLI
+invocation: env HOME=/Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/global-review-qa-rerun/missing-config.m6DpMt/home XDG_CONFIG_HOME=/Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/global-review-qa-rerun/missing-config.m6DpMt/config /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/dist/obsidian-sync-agent/obsidian-sync-agent sync --vault-root /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/global-review-qa-rerun/missing-config.m6DpMt/vault
+exit_code=2
+stdout_bytes=       0
+stderr_bytes=     124

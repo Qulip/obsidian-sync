@@ -1,0 +1,11 @@
+Usage of status:
+  --vault-root string
+    	local vault directory
+  --vault-id string
+    	server vault id
+  --server string
+    	server base url
+  --device-id string
+    	override the device id
+  --verbose
+    	enable debug logging

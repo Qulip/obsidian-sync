@@ -9,6 +9,7 @@ import (
 	"github.com/Qulip/obsidian-sync/internal/syncagent/client"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/conflict"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/manifest"
+	"github.com/Qulip/obsidian-sync/internal/syncagent/vaultfs"
 )
 
 const deleteEvent = "DELETE"
@@ -52,10 +53,14 @@ func (r *syncRun) pull(deviceID string) error {
 }
 
 func (r *syncRun) applyChange(item client.SyncChangeItem) error {
-	destination, ok := vaultPath(r.cfg.VaultRoot, item.Path)
+	_, ok := vaultPath(r.cfg.VaultRoot, item.Path)
 	if !ok {
 		r.summary.Warnings = append(r.summary.Warnings, "rejected unsafe server path: "+item.Path)
 		return nil
+	}
+	safeDestination, err := vaultfs.SafePath(r.cfg.VaultRoot, item.Path)
+	if err != nil {
+		return fmt.Errorf("validate local file %s: %w", item.Path, err)
 	}
 	entry, tracked := r.state.Files[item.Path]
 	isDelete := item.Deleted || item.EventType == deleteEvent
@@ -66,7 +71,7 @@ func (r *syncRun) applyChange(item client.SyncChangeItem) error {
 	}
 	change := pullChange{
 		item:        item,
-		destination: destination,
+		destination: safeDestination,
 		entry:       entry,
 		tracked:     tracked,
 	}

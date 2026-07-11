@@ -1,0 +1,2 @@
+pulled=0 applied=0 locally_deleted=0 pushed=0 remotely_deleted=0 conflicts=0 warnings=0
+obsidian refresh required but failed: obsidian reload requires an authenticated API key

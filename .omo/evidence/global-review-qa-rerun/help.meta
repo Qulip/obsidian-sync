@@ -1,0 +1,5 @@
+surface: terminal CLI
+invocation: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/dist/obsidian-sync-agent/obsidian-sync-agent --help
+exit_code=0
+stdout_bytes=     124
+stderr_bytes=       0

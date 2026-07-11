@@ -1,0 +1,19 @@
+SURFACE: built Go CLI sync require-refresh failure
+INVOCATION: .omo/evidence/obsidian-sync-agent sync --vault-root .omo/evidence/global-review-refresh-vault --require-obsidian-refresh
+FAKE_API_URL: http://127.0.0.1:64333
+FAKE_OBSIDIAN_URL: http://127.0.0.1:64334
+STDOUT:
+
+STDERR:
+pulled=0 applied=0 locally_deleted=0 pushed=1 remotely_deleted=0 conflicts=0 warnings=0
+obsidian refresh required but failed: obsidian reload requires an authenticated API key
+
+SERVER_LOG:
+API POST /vaults/vault/sync/devices -> "POST /vaults/vault/sync/devices HTTP/1.1" 200 -
+API GET /vaults/vault/sync/changes?limit=500&since=0 -> "GET /vaults/vault/sync/changes?limit=500&since=0 HTTP/1.1" 200 -
+API PUT body {"device_id":"dev","base_revision":0,"content_hash":"f6cdc6191a7e64733a2e2aa9881a931e185d90d50c69740e529032ee7c34819c","content":"local note\n"}
+
+API PUT /vaults/vault/files/note.md -> "PUT /vaults/vault/files/note.md HTTP/1.1" 200 -
+API GET /vaults/vault/sync/changes?device_id=dev&limit=500&since=0 -> "GET /vaults/vault/sync/changes?device_id=dev&limit=500&since=0 HTTP/1.1" 200 -
+OBSIDIAN GET / -> "GET / HTTP/1.1" 200 -
+EXIT_CODE: 3

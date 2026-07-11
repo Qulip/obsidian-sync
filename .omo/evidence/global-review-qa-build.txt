@@ -1,0 +1,4 @@
+SURFACE: Go CLI build
+INVOCATION: go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent
+EXIT_CODE: 0
+-rwxr-xr-x@ 1 ia03060_mac  staff  8918242 Jul 10 23:36 .omo/evidence/obsidian-sync-agent

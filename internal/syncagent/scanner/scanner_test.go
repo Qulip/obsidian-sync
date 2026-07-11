@@ -39,6 +39,34 @@ func TestScanVault_hashesOnlySyncableMarkdownFiles(t *testing.T) {
 	}
 }
 
+func TestScanVault_skipsSymlinkedMarkdownFile_whenTargetIsOutsideVault(t *testing.T) {
+	// Given
+	vaultRoot := t.TempDir()
+	outsideRoot := t.TempDir()
+	outsidePath := filepath.Join(outsideRoot, "outside.md")
+	if err := os.WriteFile(outsidePath, []byte("outside secret"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	if err := os.Symlink(outsidePath, filepath.Join(vaultRoot, "linked.md")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	writeFile(t, vaultRoot, "kept.md", "kept")
+
+	// When
+	got, err := ScanVault(vaultRoot)
+
+	// Then
+	if err != nil {
+		t.Fatalf("ScanVault returned error: %v", err)
+	}
+	if _, ok := got["linked.md"]; ok {
+		t.Fatalf("symlinked file was scanned: %#v", got)
+	}
+	if got["kept.md"].ContentHash != sha256Text("kept") {
+		t.Fatalf("kept.md hash = %q", got["kept.md"].ContentHash)
+	}
+}
+
 func TestClassifyLocalChanges_sortsNewModifiedDeleted(t *testing.T) {
 	// Given
 	scanned := map[string]ScannedFile{

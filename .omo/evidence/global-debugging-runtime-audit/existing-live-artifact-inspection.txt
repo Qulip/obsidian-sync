@@ -1,0 +1,22 @@
+$ rg -n "changes_body_after_create|created_at|scenario=update_and_conflict|exit_code=1|scenario=dry_run|assert_dry_run_did_not_push|cleanup_uvicorn|cleanup_docker_rm_exit|cleanup_runtime_root_removed" .omo/evidence/task-8-go-sync-cli-migration-live-sync.txt
+30:changes_body_after_create:
+31:{"data": {"changes": [{"content_hash": "2be510df8dce519e7a335a010ba7d7c20df61f30c851c446852a04197814e05a", "created_at": "2026-07-10T01:20:38.507854", "deleted": false, "event_type": "CREATE", "path": "JPA.md", "revision": 1}], "from_cursor": 0, "to_cursor": 1, "vault_id": "task8-go-live"}, "error": null, "success": true}
+38:scenario=update_and_conflict
+45:exit_code=1
+105:scenario=dry_run
+110:assert_dry_run_did_not_push=PASS value=404
+112:cleanup_uvicorn=terminated pid 54735 exit 143
+113:cleanup_docker_rm_exit=0
+184:cleanup_runtime_root_removed=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/task8-live-qa-xj9bx9cl
+
+$ rg -n "scenario=require_obsidian_refresh_failure|exit_code=3|obsidian refresh required|cleanup_fake_server|cleanup_runtime_root_removed" .omo/evidence/task-8-go-sync-cli-migration-refresh-error.txt .omo/evidence/final-f3-real-manual-qa.txt
+.omo/evidence/final-f3-real-manual-qa.txt:74:obsidian refresh required but failed: obsidian reload requires an authenticated API key
+.omo/evidence/final-f3-real-manual-qa.txt:75:exit_code=3
+.omo/evidence/final-f3-real-manual-qa.txt:82:cleanup_fake_server=terminated pid 29098
+.omo/evidence/final-f3-real-manual-qa.txt:83:cleanup_runtime_root_removed=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.URr1tHxvkk
+.omo/evidence/final-f3-real-manual-qa.txt:97:contains cleanup_runtime_root_removed=: PASS
+.omo/evidence/task-8-go-sync-cli-migration-refresh-error.txt:1:scenario=require_obsidian_refresh_failure
+.omo/evidence/task-8-go-sync-cli-migration-refresh-error.txt:7:exit_code=3
+.omo/evidence/task-8-go-sync-cli-migration-refresh-error.txt:11:obsidian refresh required but failed: obsidian reload requires an authenticated API key
+.omo/evidence/task-8-go-sync-cli-migration-refresh-error.txt:17:cleanup_fake_server_pid_39748=terminated
+.omo/evidence/task-8-go-sync-cli-migration-refresh-error.txt:18:cleanup_runtime_root_removed=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.9BsWSK0HXl

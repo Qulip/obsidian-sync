@@ -1,0 +1,12 @@
+SURFACE: built Go CLI binary
+INVOCATION: .omo/evidence/obsidian-sync-agent --help
+obsidian-sync-agent
+
+Usage:
+  obsidian-sync-agent --help
+  obsidian-sync-agent <command> [flags]
+
+Commands:
+  sync
+  status
+EXIT_CODE: 0

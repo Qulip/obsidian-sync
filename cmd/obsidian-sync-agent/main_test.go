@@ -26,6 +26,9 @@ func TestRunStatus_returnsConfigError_whenServerMissing(t *testing.T) {
 	if code != exitError {
 		t.Fatalf("exit code = %d, want %d", code, exitError)
 	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
 	if !strings.Contains(stderr.String(), "configuration error") {
 		t.Fatalf("stderr = %q", stderr.String())
 	}
@@ -34,34 +37,24 @@ func TestRunStatus_returnsConfigError_whenServerMissing(t *testing.T) {
 	}
 }
 
-func TestRunCommand_returnsExpectedExit_whenParsingStopsAtCLIFlags(t *testing.T) {
+func TestRunCommand_returnsErrorOnStderr_whenUnknownFlag(t *testing.T) {
 	// Given
-	tests := []struct {
-		name       string
-		args       []string
-		wantCode   int
-		wantStderr string
-	}{
-		{"sync help", []string{"sync", "--help"}, exitOK, "Usage of sync:"},
-		{"status help", []string{"status", "--help"}, exitOK, "Usage of status:"},
-		{"unknown sync flag", []string{"sync", "--not-a-real-flag"}, exitError, "flag provided but not defined"},
+	clearCommandEnv(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When
+	code := run([]string{"sync", "--not-a-real-flag"}, &stdout, &stderr)
+
+	// Then
+	if code != exitError {
+		t.Fatalf("exit code = %d, want %d, stderr = %q", code, exitError, stderr.String())
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			clearCommandEnv(t)
-			var stderr bytes.Buffer
-
-			// When
-			code := run(tt.args, &bytes.Buffer{}, &stderr)
-
-			// Then
-			if code != tt.wantCode {
-				t.Fatalf("exit code = %d, want %d, stderr = %q", code, tt.wantCode, stderr.String())
-			}
-			if !strings.Contains(stderr.String(), tt.wantStderr) {
-				t.Fatalf("stderr = %q", stderr.String())
-			}
-		})
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "flag provided but not defined") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 

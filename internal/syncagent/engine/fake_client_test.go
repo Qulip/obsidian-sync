@@ -11,6 +11,7 @@ import (
 type fakeClient struct {
 	changes            []client.SyncChangeItem
 	files              map[string]client.FileContentData
+	getFileErrors      map[string]error
 	status             client.SyncStatusData
 	putConflict        map[string]map[string]json.RawMessage
 	registerCalls      int
@@ -35,9 +36,10 @@ type deleteCall struct {
 
 func newFakeClient() *fakeClient {
 	return &fakeClient{
-		files:        map[string]client.FileContentData{},
-		putConflict:  map[string]map[string]json.RawMessage{},
-		nextRevision: 1,
+		files:         map[string]client.FileContentData{},
+		getFileErrors: map[string]error{},
+		putConflict:   map[string]map[string]json.RawMessage{},
+		nextRevision:  1,
 		status: client.SyncStatusData{
 			VaultID: "vault",
 		},
@@ -75,6 +77,9 @@ func (f *fakeClient) GetStatus(_ context.Context, _ string, query client.StatusR
 }
 
 func (f *fakeClient) GetFile(_ context.Context, ref client.FileRef) (client.FileContentData, error) {
+	if err, ok := f.getFileErrors[ref.Path]; ok {
+		return client.FileContentData{}, err
+	}
 	data, ok := f.files[ref.Path]
 	if !ok {
 		return client.FileContentData{}, errors.New("missing fake file")

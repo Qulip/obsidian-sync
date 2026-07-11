@@ -80,7 +80,11 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         payload: McpSyncFileRequest,
         ctx: Context[Any, Any, Request],
     ) -> dict[str, Any]:
-        """Upload markdown content to a personal knowledge base."""
+        """Upload markdown content to a personal knowledge base.
+
+        Fails closed with a 409 conflict if `path` already exists with
+        different content; pass `overwrite=True` to explicitly replace it.
+        """
         async with _session(app) as session:
             settings = _settings(app)
             metadata = await _metadata(ctx, session)
@@ -269,6 +273,7 @@ def _vault_service(
         session,
         VaultStorage(settings.vault_storage_root, settings.vault_archive_root),
         archived_by=metadata.token_id,
+        settings=settings,
     )
 
 

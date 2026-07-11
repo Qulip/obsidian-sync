@@ -181,6 +181,81 @@ class RevisionSyncService:
                 content_hash=row.content_hash,
             )
 
+        return await self._write_revision(
+            vault=vault,
+            source_path=source_path,
+            row=row,
+            content=request.content,
+            content_bytes=content_bytes,
+            content_hash=content_hash,
+            event_type=event_type,
+            device_id=request.device_id,
+        )
+
+    async def force_put_file(
+        self,
+        vault_id: str,
+        file_path: str,
+        *,
+        content: str,
+        device_id: str,
+    ) -> PutFileData:
+        """Write content unconditionally, still recorded as a revision.
+
+        Used by the one-way MCP sync tool (`VaultSyncService.force_sync_file`)
+        once a caller has explicitly opted in to overwriting existing content
+        (`overwrite=True`). Unlike `put_file`, this skips the optimistic-
+        concurrency `base_revision` check, but it still bumps the vault
+        revision, appends a `sync_events` row, and writes version history
+        through the same `_write_revision` path as `put_file`, so
+        base_revision clients observe the change on their next pull.
+        """
+        vault = await self._require_vault(vault_id)
+        source_path = _normalize_path(file_path)
+        self._validate_writable_path(source_path)
+        content_bytes = content.encode('utf-8')
+        self._validate_content_size(source_path, len(content_bytes))
+        content_hash = sha256_text(content)
+
+        row = await self._repo.get_file_for_update(vault.vault_id, source_path)
+        if row is not None and not row.deleted and row.content_hash == content_hash:
+            # Idempotent no-op: content already matches, nothing to record.
+            return PutFileData(
+                vault_id=vault.vault_id,
+                path=source_path,
+                revision=row.revision,
+                content_hash=row.content_hash,
+            )
+        event_type: SyncEventType = 'CREATE' if row is None or row.deleted else 'UPDATE'
+
+        return await self._write_revision(
+            vault=vault,
+            source_path=source_path,
+            row=row,
+            content=content,
+            content_bytes=content_bytes,
+            content_hash=content_hash,
+            event_type=event_type,
+            device_id=device_id,
+        )
+
+    async def _write_revision(
+        self,
+        *,
+        vault: Vault,
+        source_path: str,
+        row: VaultFile | None,
+        content: str,
+        content_bytes: bytes,
+        content_hash: str,
+        event_type: SyncEventType,
+        device_id: str | None,
+    ) -> PutFileData:
+        """Bump the vault revision and persist content + event + version.
+
+        Shared by `put_file` and `force_put_file` once each has already
+        decided that a CREATE/UPDATE event should be recorded.
+        """
         revision = await self._repo.next_revision(vault.id)
         vectorizable = is_vectorizable_path(source_path)
         if row is None:
@@ -198,7 +273,7 @@ class RevisionSyncService:
                     index_status='pending' if vectorizable else 'skipped',
                     revision=revision,
                     deleted=False,
-                    updated_by_device_id=request.device_id,
+                    updated_by_device_id=device_id,
                     last_synced_at=func.now(),
                 )
             )
@@ -212,7 +287,7 @@ class RevisionSyncService:
             row.vectorize = vectorizable
             row.index_status = 'pending' if vectorizable else 'skipped'
             row.index_error = None
-            row.updated_by_device_id = request.device_id
+            row.updated_by_device_id = device_id
             row.last_synced_at = func.now()
             row.updated_at = func.now()
         self._repo.add_version(
@@ -220,10 +295,10 @@ class RevisionSyncService:
             source_path=source_path,
             revision=revision,
             content_hash=content_hash,
-            content=request.content,
+            content=content,
             size_bytes=len(content_bytes),
             event_type=event_type,
-            device_id=request.device_id,
+            device_id=device_id,
         )
         self._repo.add_event(
             vault=vault,
@@ -232,7 +307,7 @@ class RevisionSyncService:
             event_type=event_type,
             content_hash=content_hash,
             deleted=False,
-            device_id=request.device_id,
+            device_id=device_id,
         )
 
         staged = self._storage.stage_replace(

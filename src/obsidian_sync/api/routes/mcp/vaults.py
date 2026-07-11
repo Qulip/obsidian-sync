@@ -76,10 +76,11 @@ async def sync_file(
 ) -> ResponseEnvelope[SyncFileData]:
     """Step 2 of saving a note: upload markdown content.
 
-    Writes the note content to the personal knowledge base unconditionally —
-    no hash comparison is performed. Only call this for paths that need saving.
-    Content must be valid markdown; frontmatter (title, tags, date) should be
-    included at the top.
+    Writes the note content to the personal knowledge base. Fails closed: if
+    path already exists with different content, this returns a 409 conflict
+    instead of silently overwriting it — pass overwrite=True to explicitly
+    replace it. Content must be valid markdown; frontmatter (title, tags,
+    date) should be included at the top.
 
     Save workflow: sync_manifest → sync_file → reindex_vault.
     """
@@ -119,6 +120,7 @@ def _vault_service(
         session,
         VaultStorage(settings.vault_storage_root, settings.vault_archive_root),
         archived_by=metadata.token_id,
+        settings=settings,
     )
 
 

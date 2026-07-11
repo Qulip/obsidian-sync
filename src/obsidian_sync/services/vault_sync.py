@@ -5,6 +5,7 @@ from typing import NoReturn
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from obsidian_sync.core.config import Settings
 from obsidian_sync.core.exceptions import AppError, ErrorCode
 from obsidian_sync.db.models import Vault, VaultFile
 from obsidian_sync.domain.enums import DocumentVisibility
@@ -27,6 +28,7 @@ from obsidian_sync.schemas.vaults import (
     SyncManifestRequest,
     VaultData,
 )
+from obsidian_sync.services.revision_sync import RevisionSyncService
 from obsidian_sync.services.storage import StagedReplace, VaultStorage
 
 _VAULT_ID_PATTERN = re.compile(r'^[a-z0-9-]+$')
@@ -39,11 +41,13 @@ class VaultSyncService:
         storage: VaultStorage,
         *,
         archived_by: str,
+        settings: Settings,
     ) -> None:
         self._session = session
         self._repo = VaultRepository(session)
         self._storage = storage
         self._archived_by = archived_by
+        self._settings = settings
 
     async def create_vault(self, request: CreateVaultRequest) -> CreateVaultData:
         vault_id = _normalize_vault_id(request.vault_id)
@@ -178,54 +182,60 @@ class VaultSyncService:
         vault_id: str,
         request: McpSyncFileRequest,
     ) -> SyncFileData:
+        """Write markdown content through the MCP one-way sync tool.
+
+        Fails closed: if `path` already exists with different content, this
+        raises a 409 CONFLICT_DETECTED error instead of silently overwriting
+        it. Pass `request.overwrite=True` to intentionally replace the
+        existing content. Either way, once a write is decided, it delegates
+        to `RevisionSyncService` so the vault revision is bumped, a
+        `sync_events` row is recorded, and version history is kept -- the
+        same invariants the bidirectional (`base_revision`) sync API
+        guarantees, so those clients observe the change on their next pull.
+        """
         normalized_vault_id = _normalize_vault_id(vault_id)
-        vault = await self._require_vault(normalized_vault_id)
+        await self._require_vault(normalized_vault_id)
         source_path = _normalize_source_path(request.path)
         content_bytes = request.content.encode('utf-8')
         size = len(content_bytes)
 
-        policy = _validate_markdown_file(source_path, size)
+        _validate_markdown_file(source_path, size)
         content_hash = sha256_bytes(content_bytes)
 
         existing = await self._repo.get_file(normalized_vault_id, source_path)
-        if existing is not None:
+        if existing is not None and not existing.deleted:
             stored_hash = self._storage.file_hash(normalized_vault_id, source_path)
             if stored_hash != existing.content_hash:
                 _raise_conflicts(
-                    [
-                        {
-                            'path': source_path,
-                            'reason': 'stored_file_hash_mismatch',
-                        }
-                    ]
+                    [{'path': source_path, 'reason': 'stored_file_hash_mismatch'}]
+                )
+            if existing.content_hash == content_hash:
+                return SyncFileData(
+                    path=source_path,
+                    status='skipped',
+                    hash=content_hash,
+                )
+            if not request.overwrite:
+                _raise_conflicts(
+                    [{'path': source_path, 'reason': 'file_exists_content_differs'}]
                 )
 
-        staged = self._storage.stage_replace(
+        revision_service = RevisionSyncService(
+            self._session,
+            self._storage,
+            self._settings,
+        )
+        result = await revision_service.force_put_file(
             normalized_vault_id,
             source_path,
-            content_bytes,
+            content=request.content,
+            device_id=self._archived_by,
         )
-        if existing is None:
-            self._repo.add_file(
-                vault=vault,
-                source_path=source_path,
-                content_hash=content_hash,
-                size_bytes=size,
-                mime_type=request.mime_type,
-                file_type=str(policy.kind),
-                vectorize=policy.vectorize,
-            )
-        else:
-            self._repo.update_file(
-                existing,
-                content_hash=content_hash,
-                size_bytes=size,
-                mime_type=request.mime_type,
-                file_type=str(policy.kind),
-                vectorize=policy.vectorize,
-            )
-        await self._commit_staged_file(staged, source_path)
-        return SyncFileData(path=source_path, status='uploaded', hash=content_hash)
+        return SyncFileData(
+            path=result.path,
+            status='uploaded',
+            hash=result.content_hash,
+        )
 
     async def archive_files(
         self,

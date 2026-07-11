@@ -199,4 +199,5 @@ def _vault_service(
         session,
         VaultStorage(settings.vault_storage_root, settings.vault_archive_root),
         archived_by=metadata.token_id,
+        settings=settings,
     )

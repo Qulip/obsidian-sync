@@ -6,10 +6,14 @@ from unittest.mock import patch
 
 from obsidian_sync.sync_agent.config import (
     DEVICE_ID_ENV,
+    MAX_RETRIES_ENV,
+    RETRY_BASE_DELAY_ENV,
+    RETRY_MAX_DELAY_ENV,
     SERVER_ENV,
     TOKEN_ENV,
     VAULT_ID_ENV,
     CliOverrides,
+    ConfigError,
     load_config,
 )
 
@@ -122,3 +126,111 @@ class LoadConfigPrecedenceTests(TestCase):
                 config = load_config(CliOverrides(vault_root=root))
 
         self.assertIsNone(config.api_token)
+
+
+class RetryConfigPrecedenceTests(TestCase):
+    def test_defaults_when_unset(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {'server_base_url': 'https://file.example', 'vault_id': 'file-vault'},
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                config = load_config(CliOverrides(vault_root=root))
+
+        self.assertEqual(config.max_retries, 3)
+        self.assertEqual(config.retry_base_delay, 1.0)
+        self.assertEqual(config.retry_max_delay, 30.0)
+
+    def test_file_values_used_when_no_env_or_cli(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {
+                    'server_base_url': 'https://file.example',
+                    'vault_id': 'file-vault',
+                    'max_retries': 5,
+                    'retry_base_delay': 2.0,
+                    'retry_max_delay': 60.0,
+                },
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                config = load_config(CliOverrides(vault_root=root))
+
+        self.assertEqual(config.max_retries, 5)
+        self.assertEqual(config.retry_base_delay, 2.0)
+        self.assertEqual(config.retry_max_delay, 60.0)
+
+    def test_env_overrides_file(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {
+                    'server_base_url': 'https://file.example',
+                    'vault_id': 'file-vault',
+                    'max_retries': 5,
+                },
+            )
+            env = {
+                MAX_RETRIES_ENV: '7',
+                RETRY_BASE_DELAY_ENV: '0.5',
+                RETRY_MAX_DELAY_ENV: '15',
+            }
+            with patch.dict('os.environ', env, clear=True):
+                config = load_config(CliOverrides(vault_root=root))
+
+        self.assertEqual(config.max_retries, 7)
+        self.assertEqual(config.retry_base_delay, 0.5)
+        self.assertEqual(config.retry_max_delay, 15.0)
+
+    def test_cli_overrides_env_and_file(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {'server_base_url': 'https://file.example', 'vault_id': 'file-vault'},
+            )
+            env = {MAX_RETRIES_ENV: '7'}
+            overrides = CliOverrides(
+                vault_root=root,
+                max_retries=1,
+                retry_base_delay=3.0,
+                retry_max_delay=9.0,
+            )
+            with patch.dict('os.environ', env, clear=True):
+                config = load_config(overrides)
+
+        self.assertEqual(config.max_retries, 1)
+        self.assertEqual(config.retry_base_delay, 3.0)
+        self.assertEqual(config.retry_max_delay, 9.0)
+
+    def test_negative_max_retries_is_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {'server_base_url': 'https://file.example', 'vault_id': 'file-vault'},
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                with self.assertRaises(ConfigError):
+                    load_config(CliOverrides(vault_root=root, max_retries=-1))
+
+    def test_retry_max_delay_below_base_delay_is_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {'server_base_url': 'https://file.example', 'vault_id': 'file-vault'},
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                with self.assertRaises(ConfigError):
+                    load_config(
+                        CliOverrides(
+                            vault_root=root,
+                            retry_base_delay=10.0,
+                            retry_max_delay=5.0,
+                        )
+                    )

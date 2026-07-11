@@ -5,6 +5,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from obsidian_sync.sync_agent.client import (
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_RETRY_BASE_DELAY,
+    DEFAULT_RETRY_MAX_DELAY,
+)
+
 CONFIG_DIRNAME = '.obsidian-sync-agent'
 CONFIG_FILENAME = 'config.json'
 
@@ -14,6 +20,9 @@ VAULT_ID_ENV = 'OBSIDIAN_SYNC_AGENT_VAULT_ID'
 DEVICE_ID_ENV = 'OBSIDIAN_SYNC_AGENT_DEVICE_ID'
 DEVICE_NAME_ENV = 'OBSIDIAN_SYNC_AGENT_DEVICE_NAME'
 OBSIDIAN_KEY_ENV = 'OBSIDIAN_LOCAL_REST_API_KEY'
+MAX_RETRIES_ENV = 'OBSIDIAN_SYNC_AGENT_MAX_RETRIES'
+RETRY_BASE_DELAY_ENV = 'OBSIDIAN_SYNC_AGENT_RETRY_BASE_DELAY'
+RETRY_MAX_DELAY_ENV = 'OBSIDIAN_SYNC_AGENT_RETRY_MAX_DELAY'
 
 DEFAULT_OBSIDIAN_BASE_URL = 'https://127.0.0.1:27124'
 
@@ -41,6 +50,9 @@ class AgentConfig:
     device_name: str | None = None
     obsidian: ObsidianConfig = field(default_factory=ObsidianConfig)
     require_obsidian_refresh: bool = False
+    max_retries: int = DEFAULT_MAX_RETRIES
+    retry_base_delay: float = DEFAULT_RETRY_BASE_DELAY
+    retry_max_delay: float = DEFAULT_RETRY_MAX_DELAY
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +62,9 @@ class CliOverrides:
     server_base_url: str | None = None
     device_id: str | None = None
     require_obsidian_refresh: bool | None = None
+    max_retries: int | None = None
+    retry_base_delay: float | None = None
+    retry_max_delay: float | None = None
 
 
 def sanitize_device_id(raw: str) -> str:
@@ -92,6 +107,54 @@ def _pick_bool(*candidates: bool | None) -> bool | None:
     for candidate in candidates:
         if candidate is not None:
             return candidate
+    return None
+
+
+def _pick_int(*candidates: int | None) -> int | None:
+    for candidate in candidates:
+        if candidate is not None:
+            return candidate
+    return None
+
+
+def _pick_float(*candidates: float | None) -> float | None:
+    for candidate in candidates:
+        if candidate is not None:
+            return candidate
+    return None
+
+
+def _env_int(name: str) -> int | None:
+    raw = os.environ.get(name)
+    if raw is None or raw == '':
+        return None
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ConfigError(f'{name} must be an integer, got {raw!r}') from exc
+
+
+def _env_float(name: str) -> float | None:
+    raw = os.environ.get(name)
+    if raw is None or raw == '':
+        return None
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ConfigError(f'{name} must be a number, got {raw!r}') from exc
+
+
+def _as_optional_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    return value if isinstance(value, int) else None
+
+
+def _as_optional_float(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
     return None
 
 
@@ -159,6 +222,36 @@ def load_config(overrides: CliOverrides) -> AgentConfig:
         _as_optional_bool(file_data.get('require_obsidian_refresh')),
     )
 
+    max_retries = _pick_int(
+        overrides.max_retries,
+        _env_int(MAX_RETRIES_ENV),
+        _as_optional_int(file_data.get('max_retries')),
+    )
+    if max_retries is None:
+        max_retries = DEFAULT_MAX_RETRIES
+    if max_retries < 0:
+        raise ConfigError('max_retries must be zero or greater')
+
+    retry_base_delay = _pick_float(
+        overrides.retry_base_delay,
+        _env_float(RETRY_BASE_DELAY_ENV),
+        _as_optional_float(file_data.get('retry_base_delay')),
+    )
+    if retry_base_delay is None:
+        retry_base_delay = DEFAULT_RETRY_BASE_DELAY
+    if retry_base_delay <= 0:
+        raise ConfigError('retry_base_delay must be greater than zero')
+
+    retry_max_delay = _pick_float(
+        overrides.retry_max_delay,
+        _env_float(RETRY_MAX_DELAY_ENV),
+        _as_optional_float(file_data.get('retry_max_delay')),
+    )
+    if retry_max_delay is None:
+        retry_max_delay = DEFAULT_RETRY_MAX_DELAY
+    if retry_max_delay < retry_base_delay:
+        raise ConfigError('retry_max_delay must be >= retry_base_delay')
+
     return AgentConfig(
         server_base_url=server.rstrip('/'),
         vault_id=vault_id,
@@ -168,6 +261,9 @@ def load_config(overrides: CliOverrides) -> AgentConfig:
         device_name=device_name,
         obsidian=_obsidian_from_file(file_data),
         require_obsidian_refresh=bool(require_refresh),
+        max_retries=max_retries,
+        retry_base_delay=retry_base_delay,
+        retry_max_delay=retry_max_delay,
     )
 
 

@@ -1,3 +1,6 @@
+import logging
+import time
+from collections.abc import Callable
 from types import TracebackType
 from typing import Any
 from urllib.parse import quote
@@ -16,6 +19,34 @@ from obsidian_sync.schemas.sync import (
 
 DEFAULT_TIMEOUT = 30.0
 DEFAULT_PAGE_LIMIT = 500
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_BASE_DELAY = 1.0
+DEFAULT_RETRY_MAX_DELAY = 30.0
+
+AGENT_LOGGER_NAME = 'obsidian_sync.agent'
+
+# HTTP statuses treated as transient: request timeout, rate limiting, and any
+# server-side error. All other 4xx statuses (in particular 409 SYNC_CONFLICT)
+# must fail immediately so the caller's conflict handling can run.
+_TRANSIENT_STATUS_CODES = frozenset({408, 429}) | frozenset(range(500, 600))
+
+# `Retry-After` is only meaningful on responses that explicitly document it.
+_RETRY_AFTER_STATUS_CODES = frozenset({429, 503})
+
+# Whitelist of known-transient network failures (connection reset/refused,
+# DNS failure, timeouts). Any other httpx.RequestError (bad URL, unsupported
+# protocol, decoding error, ...) is treated as permanent and fails fast.
+_TRANSIENT_NETWORK_ERRORS: tuple[type[httpx.RequestError], ...] = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.PoolTimeout,
+    httpx.ReadError,
+    httpx.WriteError,
+    httpx.CloseError,
+    httpx.RemoteProtocolError,
+)
 
 
 class SyncApiError(Exception):
@@ -47,6 +78,19 @@ def encode_vault_path(path: str) -> str:
     return '/'.join(quote(segment, safe='') for segment in path.split('/'))
 
 
+def _parse_retry_after(response: httpx.Response) -> float | None:
+    """Parse a numeric-seconds `Retry-After` header on 429/503 responses."""
+    if response.status_code not in _RETRY_AFTER_STATUS_CODES:
+        return None
+    raw = response.headers.get('Retry-After')
+    if raw is None:
+        return None
+    try:
+        return float(int(raw.strip()))
+    except ValueError:
+        return None
+
+
 class SyncClient:
     def __init__(
         self,
@@ -54,6 +98,12 @@ class SyncClient:
         token: str | None,
         *,
         timeout: float = DEFAULT_TIMEOUT,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_base_delay: float = DEFAULT_RETRY_BASE_DELAY,
+        retry_max_delay: float = DEFAULT_RETRY_MAX_DELAY,
+        logger: logging.Logger | None = None,
+        sleep: Callable[[float], None] | None = None,
+        transport: httpx.BaseTransport | None = None,
     ) -> None:
         headers = {'Accept': 'application/json'}
         if token:
@@ -62,7 +112,13 @@ class SyncClient:
             base_url=base_url.rstrip('/'),
             headers=headers,
             timeout=timeout,
+            transport=transport,
         )
+        self._max_retries = max_retries
+        self._retry_base_delay = retry_base_delay
+        self._retry_max_delay = retry_max_delay
+        self._logger = logger or logging.getLogger(AGENT_LOGGER_NAME)
+        self._sleep = sleep or time.sleep
 
     def __enter__(self) -> SyncClient:
         return self
@@ -174,12 +230,67 @@ class SyncClient:
         return DeleteFileData.model_validate(self._success_data(response))
 
     def _send(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
-        try:
-            return self._client.request(method, url, **kwargs)
-        except httpx.RequestError as exc:
-            raise SyncApiError(
-                f'could not reach sync server at {self._client.base_url}: {exc}'
-            ) from exc
+        attempt = 0
+        while True:
+            try:
+                response = self._client.request(method, url, **kwargs)
+            except _TRANSIENT_NETWORK_ERRORS as exc:
+                if attempt >= self._max_retries:
+                    raise SyncApiError(
+                        f'could not reach sync server at {self._client.base_url} '
+                        f'after {attempt + 1} attempt(s): {exc}'
+                    ) from exc
+                self._wait_before_retry(
+                    method, url, attempt, retry_after=None, reason=str(exc)
+                )
+                attempt += 1
+                continue
+            except httpx.RequestError as exc:
+                raise SyncApiError(
+                    f'could not reach sync server at {self._client.base_url}: {exc}'
+                ) from exc
+
+            if (
+                response.status_code in _TRANSIENT_STATUS_CODES
+                and attempt < self._max_retries
+            ):
+                self._wait_before_retry(
+                    method,
+                    url,
+                    attempt,
+                    retry_after=_parse_retry_after(response),
+                    reason=f'HTTP {response.status_code}',
+                )
+                attempt += 1
+                continue
+            return response
+
+    def _wait_before_retry(
+        self,
+        method: str,
+        url: str,
+        attempt: int,
+        *,
+        retry_after: float | None,
+        reason: str,
+    ) -> None:
+        delay = self._compute_delay(attempt, retry_after)
+        self._logger.warning(
+            'retrying %s %s (attempt %d/%d) in %.1fs after %s',
+            method,
+            url,
+            attempt + 1,
+            self._max_retries,
+            delay,
+            reason,
+        )
+        self._sleep(delay)
+
+    def _compute_delay(self, attempt: int, retry_after: float | None) -> float:
+        if retry_after is not None:
+            return max(0.0, min(retry_after, self._retry_max_delay))
+        delay = self._retry_base_delay * (2.0**attempt)
+        return min(delay, self._retry_max_delay)
 
     def _success_data(self, response: httpx.Response) -> Any:
         try:

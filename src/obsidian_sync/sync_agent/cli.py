@@ -52,6 +52,21 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('--server', help='server base url')
     parser.add_argument('--device-id', help='override the device id')
     parser.add_argument('--verbose', action='store_true', help='enable debug logging')
+    parser.add_argument(
+        '--max-retries',
+        type=int,
+        help='max retry attempts for transient sync server errors',
+    )
+    parser.add_argument(
+        '--retry-base-delay',
+        type=float,
+        help='base delay (seconds) for exponential backoff retries',
+    )
+    parser.add_argument(
+        '--retry-max-delay',
+        type=float,
+        help='cap (seconds) on the computed backoff delay',
+    )
 
 
 def _configure_logging(verbose: bool) -> None:
@@ -70,6 +85,9 @@ def _overrides(args: argparse.Namespace) -> CliOverrides:
         server_base_url=args.server,
         device_id=args.device_id,
         require_obsidian_refresh=True if require_refresh else None,
+        max_retries=args.max_retries,
+        retry_base_delay=args.retry_base_delay,
+        retry_max_delay=args.retry_max_delay,
     )
 
 

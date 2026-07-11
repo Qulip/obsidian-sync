@@ -65,7 +65,14 @@ def run_sync(
     manifest = _load_and_validate_manifest(config)
 
     try:
-        with SyncClient(config.server_base_url, config.api_token) as client:
+        with SyncClient(
+            config.server_base_url,
+            config.api_token,
+            max_retries=config.max_retries,
+            retry_base_delay=config.retry_base_delay,
+            retry_max_delay=config.retry_max_delay,
+            logger=logger,
+        ) as client:
             if dry_run:
                 _plan(config, manifest, client, summary, logger)
                 return summary
@@ -80,7 +87,14 @@ def run_sync(
 
 def run_status(config: AgentConfig, logger: logging.Logger) -> None:
     try:
-        with SyncClient(config.server_base_url, config.api_token) as client:
+        with SyncClient(
+            config.server_base_url,
+            config.api_token,
+            max_retries=config.max_retries,
+            retry_base_delay=config.retry_base_delay,
+            retry_max_delay=config.retry_max_delay,
+            logger=logger,
+        ) as client:
             status = client.get_status(config.vault_id, device_id=config.device_id)
     except SyncApiError as exc:
         raise SyncError(str(exc)) from exc
@@ -414,7 +428,9 @@ def _push_delete(
     base_revision = (
         conflict.server_revision
         if conflict is not None
-        else entry.server_revision if entry else 0
+        else entry.server_revision
+        if entry
+        else 0
     )
     try:
         client.delete_file(

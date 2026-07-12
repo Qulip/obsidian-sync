@@ -592,3 +592,36 @@ rerank는 기본 비활성화이고, 활성화해도 앞선 후보 15개에 대�
 | lexical 범위·다양성 | `content_tsv`에 source_path(구분자 공백화)·tags(IMMUTABLE 래퍼) 포함 재정의(migration 0008), `search_per_source_limit`(기본 2) per-source cap |
 
 남은 항목은 7.5의 실측 단계(실제 golden set 교체와 지표 기록)와 rerank on/off 비교이며, 이는 실제 vault 데이터가 필요하다.
+
+---
+
+## 8. 수정 사항 최종 코드 검증 (2026-07-13)
+
+### 8.1 검증 결론
+
+7.3에서 지적한 **코드 수정 대상 다섯 항목은 모두 구현 완료**로 확인됐다. 각 보정은 repository/service/schema/MCP tool 설명까지 연결돼 있고, 대응하는 PostgreSQL 통합 테스트도 추가되어 있다. 즉, stale 차단 이후 남았던 상태 표기·무후보 의미·hybrid score/threshold·embedding model 혼합·lexical/diversity 문제는 현재 코드 경로에서 해소됐다.
+
+다만 이는 구현 정확성에 대한 결론이다. 실제 vault corpus에서의 Recall/MRR 및 rerank 효과는 아직 측정되지 않았으므로, 절대적인 검색 품질 수치가 검증된 것은 아니다.
+
+| 7.3 지적 사항 | 최종 확인 결과 |
+| --- | --- |
+| failed 인덱싱이 fresh로 표시됨 | `count_failed_reindex()`가 `failed_vectorizing_jobs`를 반환하고, `index_fresh`는 pending·failed·model stale가 모두 0일 때만 `true`다. MCP 설명과 `answer_context`도 실패 파일이 검색에서 빠진다는 점을 안내한다. |
+| 후보 0건의 응답 모순 | `no_candidates`가 후보 자체가 없음을, `low_confidence`가 threshold로 후보가 제거됐음을 구분한다. 두 경우 모두 `results=[]`이면 supporting evidence가 없다고 안내한다. |
+| RRF 순위와 score 혼동 및 lexical threshold 손실 | 결과에 `matched_by`를 노출하고 schema/MCP 설명에서 score=cosine, hybrid rank=RRF를 명시한다. `min_score`는 vector-only 결과에만 적용되어 exact lexical match를 제거하지 않는다. |
+| embedding model 혼합 | 두 검색 SQL 모두 `kc.embedding_model = 현재 설정 모델` 조건을 사용한다. 불일치 파일은 `model_stale_jobs`로 집계하고 검색에서 제외하며, MCP는 full reindex를 안내한다. |
+| path/tag exact search와 동일 파일 편중 | migration `20260713_0008`이 `content_tsv`를 title/content뿐 아니라 source path 조각과 tags로 확장한다. `search_per_source_limit` 기본값 2의 cap은 rerank 후·top_k 전 적용되어 한 문서의 인접 chunk 편중을 막는다. |
+
+### 8.2 검증 근거
+
+- `uv run ruff check .`: 통과
+- `uv run mypy`: 통과 (80 source files)
+- `uv run python -m unittest discover -s tests -p 'test_migrations.py'`: 4건 통과
+- 각 변경에 대한 통합 테스트 파일 확인: `test_search_freshness.py`, `test_search_no_candidates.py`, `test_search_matched_by.py`, `test_search_model_mismatch.py`, `test_search_diversity.py`
+
+현재 작업환경에는 `.env`가 없어 PostgreSQL 기반 pytest 통합 테스트는 이번 재검증에서 실행할 수 없었다. 따라서 §7.6에 기록된 과거의 PostgreSQL pytest 결과를 본 검증에서 독립적으로 재현한 것은 아니다. 이는 코드 실패가 아니라 현재 검증 환경의 DB 설정 부재이며, DB URL이 준비된 환경에서는 위 통합 테스트 묶음을 다시 실행해 최종 확인하는 것이 좋다.
+
+### 8.3 최종 사용 판단
+
+현재 `search_knowledge`는 최신 content hash와 현재 embedding model에 일치하는 chunk만 대상으로 hybrid retrieval을 수행하고, 결과의 근거 상태와 한계를 MCP 소비자에게 전달한다. 따라서 개인 지식 저장소의 **근거 후보 검색 도구**라는 프로젝트 역할에는 적절하게 구현됐다.
+
+중요한 답변에는 이전과 같이 상위 `source_path`를 `get_note`로 열어 원문·revision을 확인해야 한다. 이후 품질 개선의 기준점은 코드 보정이 아니라 실제 golden set으로 Recall@5, MRR@10, no-result precision, duplicate-source rate 및 rerank on/off latency를 측정하는 일이다.

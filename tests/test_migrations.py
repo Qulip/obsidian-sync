@@ -22,3 +22,20 @@ class MigrationTests(TestCase):
         self.assertIn('STORED', migration)
         self.assertIn('USING gin (content_tsv)', migration)
         self.assertIn('DROP COLUMN IF EXISTS content_tsv', migration)
+
+    def test_search_feedback_migration_exists(self) -> None:
+        migration = Path(
+            'alembic/versions/20260712_0007_add_search_feedback.py'
+        ).read_text(encoding='utf-8')
+
+        for column in (
+            'feedback_helpful',
+            'feedback_selected_source_path',
+            'feedback_selected_chunk_rank',
+            'feedback_expected_missing',
+            'feedback_comment',
+            'feedback_at',
+        ):
+            self.assertIn(column, migration)
+        self.assertIn('nullable=True', migration)
+        self.assertIn("op.drop_column('search_logs', 'feedback_at'", migration)

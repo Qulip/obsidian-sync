@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     search_min_score: float = 0.0
     search_hybrid_enabled: bool = True
     search_candidate_limit: int = 50
+    search_rerank_enabled: bool = False
+    search_rerank_model: str = ''
+    search_rerank_candidates: int = 15
     database_url: str | None = Field(
         default=None,
         validation_alias=AliasChoices(

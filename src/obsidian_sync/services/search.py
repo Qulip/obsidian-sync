@@ -21,9 +21,11 @@ from obsidian_sync.schemas.search import (
     AnswerContext,
     KnowledgeSearchResponse,
     KnowledgeSearchResult,
+    SearchFeedbackResponse,
     SearchLogItem,
     SearchLogsResponse,
 )
+from obsidian_sync.services.rerank import rerank_records
 
 
 class KnowledgeSearchService:
@@ -91,6 +93,11 @@ class KnowledgeSearchService:
                 record for record in records if record.score >= effective_min_score
             ]
         low_confidence = candidate_count > 0 and len(records) == 0
+        reranked = False
+        if self.settings.search_rerank_enabled and self.settings.search_rerank_model:
+            records, reranked = await self._maybe_rerank(
+                query=normalized.query, records=records
+            )
         records = records[: normalized.top_k]
         reported_min_score = effective_min_score if effective_min_score > 0.0 else None
 
@@ -116,6 +123,7 @@ class KnowledgeSearchService:
         )
 
         return KnowledgeSearchResponse(
+            request_id=request_id,
             query=normalized.query,
             vault_id=normalized.vault_id,
             project=normalized.filters.project,
@@ -127,6 +135,7 @@ class KnowledgeSearchService:
             index_fresh=pending_vectorizing_jobs == 0,
             min_score=reported_min_score,
             low_confidence=low_confidence,
+            reranked=reranked,
             results=[
                 KnowledgeSearchResult(
                     rank=index + 1,
@@ -191,6 +200,29 @@ class KnowledgeSearchService:
         )
         return [records_by_id[chunk_id] for chunk_id in merged_ids]
 
+    async def _maybe_rerank(
+        self, *, query: str, records: list[SearchResultRecord]
+    ) -> tuple[list[SearchResultRecord], bool]:
+        """Rerank the top `search_rerank_candidates` records via LLM.
+
+        Records beyond that window are left untouched and appended after
+        the reranked head. Any rerank failure (request error, malformed
+        response) leaves `records` in its original order and reports
+        `reranked=False` -- search must never fail because rerank did.
+        """
+        candidate_count = self.settings.search_rerank_candidates
+        head = records[:candidate_count]
+        tail = records[candidate_count:]
+        reranked_head = await rerank_records(
+            ollama_client=self.ollama_client,
+            model=self.settings.search_rerank_model,
+            query=query,
+            records=head,
+        )
+        if reranked_head is None:
+            return records, False
+        return [*reranked_head, *tail], True
+
 
 class SearchLogService:
     def __init__(self, *, repository: SearchRepository) -> None:
@@ -220,6 +252,51 @@ class SearchLogService:
         )
         return SearchLogsResponse(
             logs=[SearchLogItem.model_validate(log) for log in logs]
+        )
+
+    async def record_feedback(
+        self,
+        *,
+        request_id: str,
+        vault_id: str,
+        helpful: bool | None,
+        selected_source_path: str | None,
+        selected_chunk_rank: int | None,
+        expected_missing: bool | None,
+        comment: str | None,
+    ) -> SearchFeedbackResponse:
+        if (
+            helpful is None
+            and selected_source_path is None
+            and selected_chunk_rank is None
+            and expected_missing is None
+            and comment is None
+        ):
+            raise AppError(
+                ErrorCode.VALIDATION_ERROR,
+                'At least one feedback field must be provided.',
+                status_code=422,
+            )
+        log = await self.repository.record_feedback(
+            request_id=request_id,
+            vault_id=vault_id,
+            helpful=helpful,
+            selected_source_path=selected_source_path,
+            selected_chunk_rank=selected_chunk_rank,
+            expected_missing=expected_missing,
+            comment=comment,
+        )
+        if log is None:
+            raise AppError(
+                ErrorCode.NOT_FOUND,
+                'Search log was not found for the given request_id and vault_id.',
+                status_code=404,
+            )
+        assert log.feedback_at is not None
+        return SearchFeedbackResponse(
+            request_id=log.request_id,
+            vault_id=log.vault_id,
+            feedback_at=log.feedback_at,
         )
 
 

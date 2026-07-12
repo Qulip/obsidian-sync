@@ -9,8 +9,12 @@ from obsidian_sync.clients.ollama import OllamaClient
 from obsidian_sync.core.responses import ResponseEnvelope, ok
 from obsidian_sync.repositories.search import SearchRepository
 from obsidian_sync.schemas.mcp import McpKnowledgeSearchRequest
-from obsidian_sync.schemas.search import KnowledgeSearchResponse
-from obsidian_sync.services.search import KnowledgeSearchService
+from obsidian_sync.schemas.search import (
+    KnowledgeSearchResponse,
+    SearchFeedbackRequest,
+    SearchFeedbackResponse,
+)
+from obsidian_sync.services.search import KnowledgeSearchService, SearchLogService
 
 router = APIRouter(prefix='/mcp/knowledge', tags=['mcp'])
 
@@ -58,5 +62,32 @@ async def search_knowledge(
             token_id=metadata.token_id,
             client_ip=metadata.client_ip,
             user_agent=metadata.user_agent,
+        )
+    )
+
+
+@router.post(
+    '/search/feedback', response_model=ResponseEnvelope[SearchFeedbackResponse]
+)
+async def submit_search_feedback(
+    payload: SearchFeedbackRequest,
+    session: DbSessionDependency,
+) -> ResponseEnvelope[SearchFeedbackResponse]:
+    """Record feedback for a previous search_knowledge call.
+
+    Attach `request_id` from a prior search response and note whether the
+    results were helpful, which result was actually used, or whether the
+    expected note was missing. Used to tune search thresholds and ranking.
+    """
+    service = SearchLogService(repository=SearchRepository(session))
+    return ok(
+        await service.record_feedback(
+            request_id=payload.request_id,
+            vault_id=payload.vault_id,
+            helpful=payload.helpful,
+            selected_source_path=payload.selected_source_path,
+            selected_chunk_rank=payload.selected_chunk_rank,
+            expected_missing=payload.expected_missing,
+            comment=payload.comment,
         )
     )

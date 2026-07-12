@@ -164,6 +164,37 @@ class SearchRepository:
             )
         )
 
+    async def record_feedback(
+        self,
+        *,
+        request_id: str,
+        vault_id: str,
+        helpful: bool | None,
+        selected_source_path: str | None,
+        selected_chunk_rank: int | None,
+        expected_missing: bool | None,
+        comment: str | None,
+    ) -> SearchLog | None:
+        result = await self.session.execute(
+            select(SearchLog).where(
+                SearchLog.request_id == request_id,
+                SearchLog.vault_id == vault_id,
+            )
+        )
+        log = result.scalar_one_or_none()
+        if log is None:
+            return None
+        log.feedback_helpful = helpful
+        log.feedback_selected_source_path = selected_source_path
+        log.feedback_selected_chunk_rank = selected_chunk_rank
+        log.feedback_expected_missing = expected_missing
+        log.feedback_comment = comment
+        log.feedback_at = datetime.now(timezone(timedelta(hours=9))).replace(
+            tzinfo=None
+        )
+        await self.session.flush()
+        return log
+
     async def list_logs(
         self,
         *,

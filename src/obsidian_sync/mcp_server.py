@@ -18,7 +18,11 @@ from obsidian_sync.repositories.indexing import IndexingRepository
 from obsidian_sync.repositories.search import SearchRepository
 from obsidian_sync.schemas.indexing import ReindexResult, ReindexVaultRequest
 from obsidian_sync.schemas.mcp import McpKnowledgeSearchRequest, McpSyncFileRequest
-from obsidian_sync.schemas.search import KnowledgeSearchResponse
+from obsidian_sync.schemas.search import (
+    KnowledgeSearchResponse,
+    SearchFeedbackRequest,
+    SearchFeedbackResponse,
+)
 from obsidian_sync.schemas.sync import (
     FileContentData,
     McpGetNoteRequest,
@@ -27,7 +31,7 @@ from obsidian_sync.schemas.sync import (
 from obsidian_sync.schemas.vaults import ListVaultsData, SyncFileData
 from obsidian_sync.services.indexing import ReindexService
 from obsidian_sync.services.revision_sync import RevisionSyncService
-from obsidian_sync.services.search import KnowledgeSearchService
+from obsidian_sync.services.search import KnowledgeSearchService, SearchLogService
 from obsidian_sync.services.storage import VaultStorage
 from obsidian_sync.services.vault_sync import VaultSyncService
 
@@ -114,6 +118,15 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         again once it completes. `min_score` (0.0-1.0) filters out chunks
         below that cosine-similarity threshold; when the filter removes all
         candidates, `low_confidence=True` and `results` is empty.
+
+        The response includes `request_id` -- pass it to
+        `submit_search_feedback` afterward to record which result (if any)
+        was actually useful.
+
+        If the server has an optional LLM-based rerank step enabled,
+        top candidates are reordered by relevance before `top_k` is
+        applied and `reranked=True` is reported; it falls back silently
+        to the original ranking on any failure.
         """
         async with _session(app) as session:
             settings = _settings(app)
@@ -145,6 +158,37 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
                         token_id=metadata.token_id,
                         client_ip=metadata.client_ip,
                         user_agent=metadata.user_agent,
+                    )
+                )
+            )
+
+    @mcp.tool(name='submit_search_feedback_mcp_knowledge_search_feedback_post')
+    async def submit_search_feedback(
+        payload: SearchFeedbackRequest,
+        ctx: Context[Any, Any, Request],
+    ) -> dict[str, Any]:
+        """Record whether a search_knowledge result was adopted or irrelevant.
+
+        Attach `request_id` from a prior `search_knowledge` response along
+        with `helpful`, `selected_source_path` / `selected_chunk_rank` (the
+        result that was actually used), `expected_missing` (a note you
+        expected was not returned), and/or `comment`. At least one feedback
+        field must be set. This data feeds threshold/ranking tuning for
+        search quality -- it does not change the current response.
+        """
+        async with _session(app) as session:
+            await _metadata(ctx, session)
+            service = SearchLogService(repository=SearchRepository(session))
+            return _dump(
+                ok(
+                    await service.record_feedback(
+                        request_id=payload.request_id,
+                        vault_id=payload.vault_id,
+                        helpful=payload.helpful,
+                        selected_source_path=payload.selected_source_path,
+                        selected_chunk_rank=payload.selected_chunk_rank,
+                        expected_missing=payload.expected_missing,
+                        comment=payload.comment,
                     )
                 )
             )
@@ -314,6 +358,7 @@ def _dump(
         | SyncFileData
         | ReindexResult
         | KnowledgeSearchResponse
+        | SearchFeedbackResponse
         | FileContentData
         | McpSyncStatusData
     ],

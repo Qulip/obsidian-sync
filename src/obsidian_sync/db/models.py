@@ -457,6 +457,12 @@ class SearchLog(Base):
         nullable=False,
         server_default=func.now(),
     )
+    feedback_helpful: Mapped[bool | None] = mapped_column(Boolean)
+    feedback_selected_source_path: Mapped[str | None] = mapped_column(Text)
+    feedback_selected_chunk_rank: Mapped[int | None] = mapped_column(Integer)
+    feedback_expected_missing: Mapped[bool | None] = mapped_column(Boolean)
+    feedback_comment: Mapped[str | None] = mapped_column(Text)
+    feedback_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class IndexFailureLog(Base):

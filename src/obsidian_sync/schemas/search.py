@@ -54,6 +54,7 @@ class KnowledgeSearchResult(BaseModel):
 
 
 class KnowledgeSearchResponse(BaseModel):
+    request_id: str
     query: str
     vault_id: str
     project: str | None
@@ -64,6 +65,7 @@ class KnowledgeSearchResponse(BaseModel):
     index_fresh: bool = True
     min_score: float | None = None
     low_confidence: bool = False
+    reranked: bool = False
 
 
 class SearchLogItem(BaseModel):
@@ -81,7 +83,29 @@ class SearchLogItem(BaseModel):
     result_count: int | None
     latency_ms: int | None
     created_at: datetime
+    feedback_helpful: bool | None = None
+    feedback_selected_source_path: str | None = None
+    feedback_selected_chunk_rank: int | None = None
+    feedback_expected_missing: bool | None = None
+    feedback_comment: str | None = None
+    feedback_at: datetime | None = None
 
 
 class SearchLogsResponse(BaseModel):
     logs: list[SearchLogItem] = Field(default_factory=list)
+
+
+class SearchFeedbackRequest(BaseModel):
+    request_id: str
+    vault_id: str
+    helpful: bool | None = None
+    selected_source_path: str | None = None
+    selected_chunk_rank: int | None = None
+    expected_missing: bool | None = None
+    comment: str | None = None
+
+
+class SearchFeedbackResponse(BaseModel):
+    request_id: str
+    vault_id: str
+    feedback_at: datetime

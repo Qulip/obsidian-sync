@@ -1,0 +1,6 @@
+Command: go test -count=1 ./internal/syncagent/engine -run TestRunSyncConflictDoesNotAutoMerge -v
+=== RUN   TestRunSyncConflictDoesNotAutoMerge
+--- PASS: TestRunSyncConflictDoesNotAutoMerge (0.00s)
+PASS
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	0.795s
+Exit code: 0

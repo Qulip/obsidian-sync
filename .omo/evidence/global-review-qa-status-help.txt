@@ -1,0 +1,14 @@
+SURFACE: built Go CLI status help
+INVOCATION: .omo/evidence/obsidian-sync-agent status --help
+Usage of status:
+  --vault-root string
+    	local vault directory
+  --vault-id string
+    	server vault id
+  --server string
+    	server base url
+  --device-id string
+    	override the device id
+  --verbose
+    	enable debug logging
+EXIT_CODE: 0

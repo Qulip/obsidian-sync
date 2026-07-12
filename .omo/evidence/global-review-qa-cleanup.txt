@@ -1,0 +1,5 @@
+SURFACE: local QA cleanup inspection
+INVOCATION: ps -axo pid,command | rg "ThreadingHTTPServer|global-review-refresh|obsidian-sync-agent sync"
+NOTE: fake HTTP servers were owned by the Python QA harness and shutdown/server_close were called before harness exit.
+TEMP_FIXTURE: .omo/evidence/global-review-refresh-vault retained as evidence fixture.
+EXIT_CODE: 0

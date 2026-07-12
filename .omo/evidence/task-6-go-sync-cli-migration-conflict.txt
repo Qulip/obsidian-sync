@@ -1,0 +1,9 @@
+=== RUN   TestWriteConflictFile_writesExpectedSections_whenConflictExists
+    conflict_test.go:74: verified conflict content includes Local Version and Server Version
+--- PASS: TestWriteConflictFile_writesExpectedSections_whenConflictExists (0.00s)
+=== RUN   TestWriteConflictFile_reusesExistingFile_whenSameDeviceAndServerRevision
+--- PASS: TestWriteConflictFile_reusesExistingFile_whenSameDeviceAndServerRevision (0.00s)
+=== RUN   TestWriteConflictFile_writesDeletedPlaceholders_whenContentUsesPlaceholders
+--- PASS: TestWriteConflictFile_writesDeletedPlaceholders_whenContentUsesPlaceholders (0.00s)
+PASS
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/conflict	10.329s

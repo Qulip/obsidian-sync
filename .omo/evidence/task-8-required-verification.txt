@@ -1,0 +1,30 @@
+$ go test -count=1 ./cmd/obsidian-sync-agent
+ok  	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent	10.793s
+exit_code=0
+
+$ go test -count=1 ./cmd/obsidian-sync-agent ./internal/syncagent/engine ./internal/syncagent/client
+ok  	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent	10.794s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	10.575s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/client	10.352s
+exit_code=0
+
+$ go test -count=1 ./...
+ok  	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent	0.318s
+?   	github.com/Qulip/obsidian-sync/internal/syncagent	[no test files]
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile	10.633s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/client	2.229s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/config	1.380s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/conflict	1.646s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	0.987s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/manifest	12.091s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/obsidian	11.269s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/rules	1.819s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/scanner	0.739s
+exit_code=0
+
+$ go vet ./cmd/obsidian-sync-agent ./internal/syncagent/...
+exit_code=0
+
+$ go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent
+exit_code=0
+

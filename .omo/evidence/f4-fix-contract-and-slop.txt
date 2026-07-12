@@ -1,0 +1,237 @@
+F4 contract and helper-arity repair evidence
+worktree: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+branch: work/go-sync-cli-migration
+captured_at: 2026-07-10T14:07:12Z
+
+Root cause:
+- Root invocation drift: Go run() treated zero arguments the same as --help/-h and returned exit 0, while the Python argparse contract exits 2 when the required command is missing.
+- Help surface drift: Go used flag.FlagSet default Usage output, which displays single-dash long names like -vault-root even though accepted parsing and Python-characterized help use --vault-root.
+- Production helper arity slop: several private helpers carried four to six positional inputs that belonged to small domain structs or receiver context.
+- Evidence gap: the historical Task 3 reject artifact remained without a later explicit approval note.
+
+Files changed for F4 scope:
+- cmd/obsidian-sync-agent/main.go
+- cmd/obsidian-sync-agent/help_test.go
+- internal/syncagent/conflict/conflict.go
+- internal/syncagent/obsidian/obsidian.go
+- internal/syncagent/client/client.go
+- .omo/evidence/go-sync-cli-migration-task-3-final-approval-note.md
+- .omo/evidence/obsidian-sync-agent
+- .omo/evidence/f4-fix-contract-and-slop.txt
+
+TDD red proof captured before production edits by previous worker:
+- go test -count=1 -run 'TestRun_returnsError_whenNoCommandSupplied|TestRun_printsDoubleDashHelp' -v ./cmd/obsidian-sync-agent -> exit 1
+- Failure showed no-arg exit code = 0, want 2.
+- Failure showed sync/status help missing --vault-root and printing single-dash flag output.
+
+
+## go test command package
+$ go test -count=1 ./cmd/obsidian-sync-agent
+ok  	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent	10.821s
+exit_code=0
+
+## go test helper packages
+$ go test -count=1 ./internal/syncagent/conflict ./internal/syncagent/obsidian ./internal/syncagent/client
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/conflict	0.393s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/obsidian	0.822s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/client	10.780s
+exit_code=0
+
+## go test command plus syncagent packages
+$ go test -count=1 ./cmd/obsidian-sync-agent ./internal/syncagent/...
+ok  	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent	10.705s
+?   	github.com/Qulip/obsidian-sync/internal/syncagent	[no test files]
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile	0.393s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/client	0.842s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/config	1.447s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/conflict	1.060s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	12.022s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/manifest	2.898s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/obsidian	2.132s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/rules	2.513s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/scanner	3.341s
+exit_code=0
+
+## go test all packages
+$ go test -count=1 ./...
+ok  	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent	10.553s
+?   	github.com/Qulip/obsidian-sync/internal/syncagent	[no test files]
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile	1.908s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/client	0.264s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/config	1.442s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/conflict	0.703s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	11.071s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/manifest	1.232s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/obsidian	1.641s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/rules	2.267s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/scanner	2.094s
+exit_code=0
+
+## go vet all packages
+$ go vet ./...
+exit_code=0
+
+## go build evidence binary
+$ go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent
+exit_code=0
+
+## manual CLI no args exits 2
+$ .omo/evidence/obsidian-sync-agent; code=$?; echo observed_exit=$code; exit $code
+the following arguments are required: command
+observed_exit=2
+exit_code=2
+
+## manual CLI root --help exits 0
+$ .omo/evidence/obsidian-sync-agent --help; code=$?; echo observed_exit=$code; exit $code
+obsidian-sync-agent
+
+Usage:
+  obsidian-sync-agent --help
+  obsidian-sync-agent <command> [flags]
+
+Commands:
+  sync
+  status
+observed_exit=0
+exit_code=0
+
+## manual CLI sync help double-dash flags
+$ out=$(.omo/evidence/obsidian-sync-agent sync --help 2>&1); code=$?; printf '%s\n' "$out"; echo observed_exit=$code; for flag in --vault-root --dry-run --require-obsidian-refresh; do printf '%s\n' "$out" | grep -F -- "$flag" >/dev/null || exit 97; done; exit $code
+Usage of sync:
+  --vault-root string
+    	local vault directory
+  --vault-id string
+    	server vault id
+  --server string
+    	server base url
+  --device-id string
+    	override the device id
+  --verbose
+    	enable debug logging
+  --dry-run
+    	print planned actions without writing or pushing
+  --require-obsidian-refresh
+    	exit non-zero if the Obsidian refresh step fails
+observed_exit=0
+exit_code=0
+
+## manual CLI status help double-dash flags
+$ out=$(.omo/evidence/obsidian-sync-agent status --help 2>&1); code=$?; printf '%s\n' "$out"; echo observed_exit=$code; for flag in --vault-root --vault-id --server --device-id --verbose; do printf '%s\n' "$out" | grep -F -- "$flag" >/dev/null || exit 97; done; exit $code
+Usage of status:
+  --vault-root string
+    	local vault directory
+  --vault-id string
+    	server vault id
+  --server string
+    	server base url
+  --device-id string
+    	override the device id
+  --verbose
+    	enable debug logging
+observed_exit=0
+exit_code=0
+
+## production arity scan requested packages
+$ go run /tmp/f4_arity_scan.XXXXXX.go
+cmd/obsidian-sync-agent/main.go:23 main explicit_params=0
+cmd/obsidian-sync-agent/main.go:27 run explicit_params=3
+cmd/obsidian-sync-agent/main.go:47 printHelp explicit_params=1
+cmd/obsidian-sync-agent/main.go:74 runStatus explicit_params=3
+cmd/obsidian-sync-agent/main.go:94 runSync explicit_params=3
+cmd/obsidian-sync-agent/main.go:128 parseCommand explicit_params=3
+cmd/obsidian-sync-agent/main.go:158 printCommandHelp explicit_params=2
+cmd/obsidian-sync-agent/main.go:178 overrides explicit_params=1
+cmd/obsidian-sync-agent/main.go:189 writeCommandError explicit_params=3
+cmd/obsidian-sync-agent/main.go:194 printSummary explicit_params=2
+cmd/obsidian-sync-agent/main.go:219 printStatus explicit_params=2
+internal/syncagent/client/client.go:24 New explicit_params=3
+internal/syncagent/client/client.go:42 EncodeVaultPath explicit_params=1
+internal/syncagent/client/client.go:50 RegisterDevice explicit_params=3
+internal/syncagent/client/client.go:60 GetChanges explicit_params=3
+internal/syncagent/client/client.go:83 GetStatus explicit_params=3
+internal/syncagent/client/client.go:100 GetFile explicit_params=2
+internal/syncagent/client/client.go:108 PutFile explicit_params=3
+internal/syncagent/client/client.go:117 DeleteFile explicit_params=3
+internal/syncagent/client/client.go:126 filePath explicit_params=1
+internal/syncagent/client/client.go:142 sendNoBody explicit_params=3
+internal/syncagent/client/client.go:151 sendWithBody explicit_params=2
+internal/syncagent/client/client.go:170 do explicit_params=2
+internal/syncagent/client/client.go:184 closeBody explicit_params=1
+internal/syncagent/client/client.go:189 encodeBody explicit_params=1
+internal/syncagent/client/client.go:197 requestURL explicit_params=1
+internal/syncagent/client/client.go:216 parseEnvelope explicit_params=1
+internal/syncagent/client/client.go:242 envelopeError explicit_params=2
+internal/syncagent/client/dto.go:102 UnmarshalJSON explicit_params=1
+internal/syncagent/client/errors.go:23 Error explicit_params=0
+internal/syncagent/client/errors.go:30 Is explicit_params=1
+internal/syncagent/client/errors.go:40 Error explicit_params=0
+internal/syncagent/client/errors.go:44 Is explicit_params=1
+internal/syncagent/conflict/conflict.go:31 Filename explicit_params=3
+internal/syncagent/conflict/conflict.go:37 WriteFile explicit_params=1
+internal/syncagent/conflict/conflict.go:71 destinationPath explicit_params=2
+internal/syncagent/conflict/conflict.go:96 findExisting explicit_params=1
+internal/syncagent/conflict/conflict.go:122 parseServerRevision explicit_params=1
+internal/syncagent/conflict/conflict.go:141 formatBody explicit_params=2
+internal/syncagent/conflict/conflict.go:163 writeTextAtomic explicit_params=2
+internal/syncagent/obsidian/obsidian.go:37 RequireRefreshExitCode explicit_params=1
+internal/syncagent/obsidian/obsidian.go:44 Refresh explicit_params=2
+internal/syncagent/obsidian/obsidian.go:84 parseBaseURL explicit_params=1
+internal/syncagent/obsidian/obsidian.go:98 newHTTPClient explicit_params=1
+internal/syncagent/obsidian/obsidian.go:120 health explicit_params=1
+internal/syncagent/obsidian/obsidian.go:134 reload explicit_params=1
+internal/syncagent/obsidian/obsidian.go:167 endpoint explicit_params=2
+internal/syncagent/obsidian/obsidian.go:173 doJSON explicit_params=3
+arity scan passed: no production function in requested packages has more than 3 explicit parameters
+exit_code=0
+
+## cleanup receipt
+Removed /tmp/f4_arity_scan.XXXXXX.go after arity scan.
+temp_scan_removed=true
+background_jobs_check_exit_code=0
+No debugger sessions or local services were started by this verifier.
+
+## git diff check
+$ git diff --check
+exit_code=0
+
+## post-write pure LOC
+cmd/obsidian-sync-agent/main.go pure_loc=216
+cmd/obsidian-sync-agent/help_test.go pure_loc=87
+internal/syncagent/conflict/conflict.go pure_loc=170
+internal/syncagent/obsidian/obsidian.go pure_loc=187
+internal/syncagent/client/client.go pure_loc=247
+
+## final git status short
+ M .omo/evidence/obsidian-sync-agent
+ M cmd/obsidian-sync-agent/main.go
+ M internal/syncagent/client/client.go
+ M internal/syncagent/conflict/conflict.go
+ M internal/syncagent/obsidian/obsidian.go
+?? .omo/evidence/f4-fix-contract-and-slop.txt
+?? .omo/evidence/final-f1-plan-compliance-gate-review.md
+?? .omo/evidence/final-f1-plan-compliance.txt
+?? .omo/evidence/final-f2-code-quality-gate-review.md
+?? .omo/evidence/final-f2-code-quality.txt
+?? .omo/evidence/final-f3-real-manual-qa.txt
+?? .omo/evidence/final-f4-scope-fidelity-gate-review.md
+?? .omo/evidence/final-f4-scope-fidelity.txt
+?? .omo/evidence/go-sync-cli-migration-task-3-final-approval-note.md
+?? cmd/obsidian-sync-agent/help_test.go
+
+## final diff stat including tracked files
+ .omo/evidence/obsidian-sync-agent       | Bin 8917634 -> 8918242 bytes
+ cmd/obsidian-sync-agent/main.go         |  46 ++++++++++++++++++++++----
+ internal/syncagent/client/client.go     |  37 ++++++++++++---------
+ internal/syncagent/conflict/conflict.go |  29 ++++++++++-------
+ internal/syncagent/obsidian/obsidian.go |  56 ++++++++++++++++++++++++--------
+ 5 files changed, 120 insertions(+), 48 deletions(-)
+
+## post-verifier cleanup process check
+$ pgrep -x obsidian-sync-agent
+exit_code=1
+$ pgrep -x uvicorn
+exit_code=1
+$ pgrep -x go
+exit_code=1
+$ find /tmp -maxdepth 1 -name 'f4_arity_scan.*.go' -print
+exit_code=0

@@ -16,6 +16,9 @@ resources/ffmpeg/ffprobe.exe
 # Electron packaging output
 release/
 
+# Local build outputs
+dist/
+
 .sisyphus
 
 .env

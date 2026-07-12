@@ -1,0 +1,77 @@
+Task 7 second fix arity evidence
+Worktree: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+Timestamp: 2026-07-10T00:48:34Z
+
+Command: rg -n '^func' internal/syncagent/engine --glob '*.go'
+internal/syncagent/engine/util.go:14:func vaultPath(root string, rel string) (string, bool) {
+internal/syncagent/engine/util.go:29:func existsPath(path string) bool {
+internal/syncagent/engine/util.go:34:func hashFile(path string) (string, error) {
+internal/syncagent/engine/util.go:42:func hashText(content string) string {
+internal/syncagent/engine/util.go:47:func intDetail(raw json.RawMessage) int {
+internal/syncagent/engine/push.go:22:func (r *syncRun) push(local scanner.LocalChanges, skipPaths map[string]struct{}) error {
+internal/syncagent/engine/push.go:56:func (r *syncRun) modifiedBase(path string) (int, bool, error) {
+internal/syncagent/engine/push.go:76:func (r *syncRun) pushUpsert(file pushFile) error {
+internal/syncagent/engine/push.go:110:func (r *syncRun) pushDelete(path string) error {
+internal/syncagent/engine/push.go:139:func (r *syncRun) pushConflict(file pushFile) error {
+internal/syncagent/engine/engine_test.go:12:func TestRunSyncPullWriteDeleteAndCursor(t *testing.T) {
+internal/syncagent/engine/engine_test.go:62:func TestRunSyncCreateUpdateDelete(t *testing.T) {
+internal/syncagent/engine/engine_test.go:99:func TestRunSyncConflictDoesNotAutoMerge(t *testing.T) {
+internal/syncagent/engine/engine_test.go:140:func TestRunSyncSkipsPullConflictPushInSameRun(t *testing.T) {
+internal/syncagent/engine/engine_test.go:175:func TestRunSyncPushConflictWritesConflictFile(t *testing.T) {
+internal/syncagent/engine/engine_test.go:209:func TestRunSyncPushesResolvedConflictWithConflictRevision(t *testing.T) {
+internal/syncagent/engine/engine_test.go:249:func TestRunSyncAcceptsServerDeleteWhenResolvedByLocalDelete(t *testing.T) {
+internal/syncagent/engine/dry_run_test.go:12:func TestRunSyncDryRunDoesNotWriteOrPush(t *testing.T) {
+internal/syncagent/engine/engine.go:15:func RunSync(ctx context.Context, cfg config.AgentConfig, options Options) (Summary, error) {
+internal/syncagent/engine/engine.go:46:func RunStatus(ctx context.Context, cfg config.AgentConfig, options StatusOptions) (StatusReport, error) {
+internal/syncagent/engine/engine.go:75:func (r *syncRun) run() error {
+internal/syncagent/engine/engine.go:106:func (r *syncRun) plan() (Summary, error) {
+internal/syncagent/engine/engine.go:132:func loadAndValidateManifest(cfg config.AgentConfig) (manifest.Manifest, error) {
+internal/syncagent/engine/engine.go:145:func (r *syncRun) runObsidian(options Options) {
+internal/syncagent/engine/types.go:55:func clientFor(cfg config.AgentConfig, provided SyncClient) (SyncClient, error) {
+internal/syncagent/engine/types.go:66:func nowFunc(options Options) func() time.Time {
+internal/syncagent/engine/test_helpers_test.go:21:func fixedNow() time.Time {
+internal/syncagent/engine/test_helpers_test.go:25:func testConfig(root string) config.AgentConfig {
+internal/syncagent/engine/test_helpers_test.go:42:func syncChange(spec changeSpec) client.SyncChangeItem {
+internal/syncagent/engine/test_helpers_test.go:53:func fileData(revision int, path string, content string) client.FileContentData {
+internal/syncagent/engine/test_helpers_test.go:64:func conflictDetails(serverRevision int, clientBaseRevision int) map[string]json.RawMessage {
+internal/syncagent/engine/test_helpers_test.go:71:func rawInt(value int) json.RawMessage {
+internal/syncagent/engine/test_helpers_test.go:80:func newVaultFixture(t *testing.T) vaultFixture {
+internal/syncagent/engine/test_helpers_test.go:85:func (v vaultFixture) writeNote(path string, content string) {
+internal/syncagent/engine/test_helpers_test.go:96:func readFile(t *testing.T, path string) string {
+internal/syncagent/engine/test_helpers_test.go:105:func (v vaultFixture) requireFileContent(path string, want string) {
+internal/syncagent/engine/test_helpers_test.go:113:func saveManifest(t *testing.T, root string, state manifest.Manifest) {
+internal/syncagent/engine/test_helpers_test.go:120:func loadManifest(t *testing.T, root string) manifest.Manifest {
+internal/syncagent/engine/test_helpers_test.go:129:func testHashText(content string) string {
+internal/syncagent/engine/test_helpers_test.go:134:func testHashPtr(content string) *string {
+internal/syncagent/engine/test_helpers_test.go:139:func stringPtr(value string) *string {
+internal/syncagent/engine/test_helpers_test.go:143:func exists(path string) bool {
+internal/syncagent/engine/test_helpers_test.go:148:func conflictFiles(t *testing.T, root string) []string {
+internal/syncagent/engine/test_helpers_test.go:167:func containsAll(body string, parts ...string) bool {
+internal/syncagent/engine/test_helpers_test.go:176:func (f *fakeClient) requirePut(t *testing.T, want putCall) {
+internal/syncagent/engine/test_helpers_test.go:186:func (f *fakeClient) requireDelete(t *testing.T, want deleteCall) {
+internal/syncagent/engine/test_helpers_test.go:196:func requireNoError(t *testing.T, err error) {
+internal/syncagent/engine/pull.go:23:func (r *syncRun) pull(deviceID string) error {
+internal/syncagent/engine/pull.go:54:func (r *syncRun) applyChange(item client.SyncChangeItem) error {
+internal/syncagent/engine/pull.go:79:func (r *syncRun) applyDelete(change pullChange) error {
+internal/syncagent/engine/pull.go:123:func (r *syncRun) applyWrite(change pullChange) error {
+internal/syncagent/engine/pull.go:154:func (r *syncRun) writePullConflict(change pullChange, localHash string, serverFile client.FileContentData) error {
+internal/syncagent/engine/pull.go:181:func localDirty(localHash string, serverHash string, change pullChange) bool {
+internal/syncagent/engine/pull.go:188:func baseRevision(entry manifest.Entry, tracked bool) int {
+internal/syncagent/engine/fake_client_test.go:36:func newFakeClient() *fakeClient {
+internal/syncagent/engine/fake_client_test.go:47:func (f *fakeClient) RegisterDevice(_ context.Context, _ string, _ client.RegisterDeviceRequest) (client.RegisterDeviceData, error) {
+internal/syncagent/engine/fake_client_test.go:52:func (f *fakeClient) GetChanges(_ context.Context, _ string, query client.ChangesRequest) (client.SyncChangesData, error) {
+internal/syncagent/engine/fake_client_test.go:72:func (f *fakeClient) GetStatus(_ context.Context, _ string, query client.StatusRequest) (client.SyncStatusData, error) {
+internal/syncagent/engine/fake_client_test.go:77:func (f *fakeClient) GetFile(_ context.Context, ref client.FileRef) (client.FileContentData, error) {
+internal/syncagent/engine/fake_client_test.go:85:func (f *fakeClient) PutFile(_ context.Context, ref client.FileRef, body client.PutFileRequest) (client.PutFileData, error) {
+internal/syncagent/engine/fake_client_test.go:96:func (f *fakeClient) DeleteFile(_ context.Context, ref client.FileRef, body client.DeleteFileRequest) (client.DeleteFileData, error) {
+internal/syncagent/engine/status_test.go:11:func TestRunStatusReturnsServerAndManifestState(t *testing.T) {
+internal/syncagent/engine/obsidian_test.go:11:func TestRunSyncReportsObsidianRefreshWarning(t *testing.T) {
+Exit code: 0
+
+Command: rg -nU 'func(?:\s+\([^)]+\))?\s+\w+\s*\([^)]*,[^)]*,[^)]*,[^)]*\)' internal/syncagent/engine --glob '*.go'
+Exit code: 1
+Result: no engine production or test helper function signatures with 4+ comma-separated parameters found.
+
+Command: rg -n 'func (plan|change|writeNote|requireFileContent|requirePut|requireDelete)' internal/syncagent/engine --glob '*.go'
+Exit code: 1
+Result: rejected free-function helper names are gone; replacements are grouped methods or named spec values.

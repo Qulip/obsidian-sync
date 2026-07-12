@@ -1,0 +1,35 @@
+# github.com/Qulip/obsidian-sync/internal/syncagent/rules [github.com/Qulip/obsidian-sync/internal/syncagent/rules.test]
+internal/syncagent/rules/rules_test.go:24:11: undefined: ShouldSync
+internal/syncagent/rules/rules_test.go:40:40: undefined: IsIgnoredDir
+internal/syncagent/rules/rules_test.go:41:43: undefined: IsIgnoredDir
+internal/syncagent/rules/rules_test.go:42:41: undefined: IsIgnoredDir
+internal/syncagent/rules/rules_test.go:43:40: undefined: IsIgnoredPath
+internal/syncagent/rules/rules_test.go:44:37: undefined: IsIgnoredPath
+internal/syncagent/rules/rules_test.go:45:39: undefined: IsIgnoredPath
+internal/syncagent/rules/rules_test.go:46:43: undefined: IsIgnoredPath
+internal/syncagent/rules/rules_test.go:47:42: undefined: IsConflictFile
+internal/syncagent/rules/rules_test.go:48:40: undefined: IsConflictFile
+internal/syncagent/rules/rules_test.go:48:40: too many errors
+# github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile [github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile.test]
+internal/syncagent/atomicfile/atomicfile_test.go:15:9: undefined: WriteBytes
+# github.com/Qulip/obsidian-sync/internal/syncagent/manifest [github.com/Qulip/obsidian-sync/internal/syncagent/manifest.test]
+internal/syncagent/manifest/manifest_test.go:15:14: undefined: Load
+internal/syncagent/manifest/manifest_test.go:35:14: undefined: Manifest
+internal/syncagent/manifest/manifest_test.go:39:21: undefined: Entry
+internal/syncagent/manifest/manifest_test.go:46:25: undefined: Conflict
+internal/syncagent/manifest/manifest_test.go:57:12: undefined: Save
+internal/syncagent/manifest/manifest_test.go:60:17: undefined: Load
+internal/syncagent/manifest/manifest_test.go:90:9: undefined: Save
+internal/syncagent/manifest/manifest_test.go:90:25: undefined: Manifest
+internal/syncagent/manifest/manifest_test.go:96:23: undefined: Path
+FAIL	github.com/Qulip/obsidian-sync/internal/syncagent/manifest [build failed]
+FAIL	github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile [build failed]
+FAIL	github.com/Qulip/obsidian-sync/internal/syncagent/rules [build failed]
+# github.com/Qulip/obsidian-sync/internal/syncagent/scanner [github.com/Qulip/obsidian-sync/internal/syncagent/scanner.test]
+internal/syncagent/scanner/scanner_test.go:24:14: undefined: ScanVault
+internal/syncagent/scanner/scanner_test.go:44:24: undefined: ScannedFile
+internal/syncagent/scanner/scanner_test.go:51:20: undefined: manifest.Manifest
+internal/syncagent/scanner/scanner_test.go:52:30: undefined: manifest.Entry
+internal/syncagent/scanner/scanner_test.go:62:9: undefined: ClassifyLocalChanges
+FAIL	github.com/Qulip/obsidian-sync/internal/syncagent/scanner [build failed]
+FAIL

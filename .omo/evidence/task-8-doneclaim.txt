@@ -1,0 +1,64 @@
+DoneClaim: Task 8 - Wire Go CLI binary and prove live FastAPI parity
+
+changed_files:
+- cmd/obsidian-sync-agent/main.go
+- cmd/obsidian-sync-agent/main_test.go
+- internal/syncagent/client/dto.go
+- internal/syncagent/client/client_test.go
+- internal/syncagent/client/time_test.go
+- internal/syncagent/engine/test_helpers_test.go
+- .omo/evidence/obsidian-sync-agent
+- .omo/evidence/task-8-go-sync-cli-migration-config-error.txt
+- .omo/evidence/task-8-go-sync-cli-migration-refresh-error.txt
+- .omo/evidence/task-8-go-sync-cli-migration-live-sync.txt
+- .omo/evidence/task-8-live-qa-blocker.txt
+- .omo/evidence/task-8-doneclaim.txt
+
+root_cause:
+- FastAPI emits sync change created_at values as naive ISO datetimes such as 2026-07-10T01:20:38.507854.
+- Go decoded created_at as time.Time, which only accepts RFC3339/RFC3339Nano with timezone, so /sync/changes unmarshalling failed with "server returned an unexpected response shape".
+
+fix:
+- Added client.APITime to parse RFC3339Nano plus FastAPI naive ISO datetime layouts at the HTTP DTO boundary.
+- Updated engine test fixture for the APITime type.
+- Added TestClientGetChanges_readsFastAPINaiveTimestamp.
+- Completed CLI sync/status wiring left by the previous worker, preserving exit codes 1/2/3.
+
+commands:
+- go test -count=1 ./internal/syncagent/client -run TestClientGetChanges_readsFastAPINaiveTimestamp -v => exit_code=0
+- go test -count=1 ./cmd/obsidian-sync-agent ./internal/syncagent/engine ./internal/syncagent/client => exit_code=0
+- go test -count=1 ./... => exit_code=0
+- go vet ./cmd/obsidian-sync-agent ./internal/syncagent/... => exit_code=0
+- go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent => exit_code=0
+
+manual_qa_artifacts:
+- .omo/evidence/task-8-go-sync-cli-migration-config-error.txt
+  scenario=missing_config; observable exit_code=2 and stderr names missing server base url.
+- .omo/evidence/task-8-go-sync-cli-migration-refresh-error.txt
+  scenario=require_obsidian_refresh_failure; observable exit_code=3 and stderr says reload requires an authenticated API key.
+- .omo/evidence/task-8-go-sync-cli-migration-live-sync.txt
+  scenario=live_fastapi_go_cli_parity; observable result=PASS.
+  Covers create push from vault A, pull into vault B, update, conflict exit 1, conflict file content, resolved conflict push/pull, delete propagation, status command, dry-run no-push, and raw /sync/changes created_at response shape.
+- .omo/evidence/task-8-live-qa-blocker.txt
+  scenario=live_fastapi_go_cli_parity; observable result=NOT_BLOCKED and points to successful live transcript.
+
+adversarial_class_results:
+- malformed_input: PASS via missing config transcript; CLI exits 2 with configuration error instead of running with partial config.
+- stale_state: PASS via rebuilt .omo/evidence/obsidian-sync-agent before transcripts and live QA; live transcript captures current raw FastAPI response shape and successful rerun.
+- dirty_worktree: PASS; prior Task 8 edits were preserved and continued, no plan checkbox or ledger edits were made.
+- hung_or_long_commands: PASS; CLI QA used /usr/bin/perl alarm wrappers; uvicorn and Docker resources were explicitly terminated.
+- misleading_success_output: PASS; live QA checked file content, HTTP status codes, DB soft-delete row, conflict file body, and dry-run server 404, not just CLI success text.
+- flaky_tests: PASS; required Go tests were rerun with -count=1.
+- repeated_interruptions: PASS; user status check was answered without restarting or discarding edits.
+- prompt_injection: not_applicable; task did not process untrusted LLM or prompt text.
+- cancel_resume: not_applicable; no resumable protocol was introduced.
+
+cleanup_receipt:
+- Live QA transcript records cleanup_uvicorn=terminated, cleanup_docker_rm_exit=0, cleanup_runtime_root_removed, and cleanup_notes.
+- Post-QA checks showed no obsidian-sync-task8-pg Docker containers and no uvicorn obsidian_sync.app process.
+- .debug-journal.md was removed.
+- .debug-journal.md entry was removed from the git exclude file.
+
+risks:
+- Cross-platform release/build automation is Task 9 and was not performed here.
+- The live QA artifact was generated before the final test-file split, but the product binary was rebuilt after the split and the split did not change product code.

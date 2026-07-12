@@ -1,0 +1,4 @@
+POST /vaults/qa-rerun/sync/devices
+GET /vaults/qa-rerun/sync/changes?limit=500&since=0
+GET /vaults/qa-rerun/sync/changes?device_id=qa-device&limit=500&since=0
+GET /

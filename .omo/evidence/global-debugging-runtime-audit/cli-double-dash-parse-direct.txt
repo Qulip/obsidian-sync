@@ -1,0 +1,4 @@
+surface=terminal CLI direct shell
+$ env -u OBSIDIAN_SYNC_AGENT_SERVER -u OBSIDIAN_SYNC_AGENT_VAULT_ID -u OBSIDIAN_SYNC_AGENT_VAULT_ROOT -u OBSIDIAN_SYNC_AGENT_DEVICE_ID -u OBSIDIAN_SYNC_AGENT_DEVICE_NAME -u OBSIDIAN_SYNC_AGENT_TOKEN -u OBSIDIAN_LOCAL_REST_API_KEY /usr/bin/perl -e 'alarm 10; exec @ARGV' .omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:1 --vault-id v --vault-root /tmp --device-id d --dry-run
+sync failed: get changes: send sync request: Get "http://127.0.0.1:1/vaults/v/sync/changes?limit=500&since=0": dial tcp 127.0.0.1:1: connect: connection refused
+exit_code=2

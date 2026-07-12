@@ -1,0 +1,108 @@
+Global symlink containment fix evidence
+
+Root cause
+- Vault containment was lexical only. The engine cleaned and joined server paths
+  under the absolute vault root, but it did not inspect existing path
+  components with Lstat before scanner reads, pull writes/deletes, or conflict
+  file writes. A symlinked file or parent inside the vault could therefore
+  route reads, atomic writes, conflict writes, or delete pre-checks outside the
+  vault.
+
+Changed files for this fix
+- internal/syncagent/vaultfs/vaultfs.go
+- internal/syncagent/engine/util.go
+- internal/syncagent/engine/pull.go
+- internal/syncagent/scanner/scanner.go
+- internal/syncagent/scanner/scanner_test.go
+- internal/syncagent/conflict/conflict.go
+- internal/syncagent/conflict/conflict_test.go
+- internal/syncagent/engine/symlink_containment_test.go
+
+Implementation summary
+- Added internal/syncagent/vaultfs with:
+  - LexicalPath: keeps the existing relative-path, non-absolute, no-.. escape
+    behavior.
+  - SafePath: returns a vault path only after walking existing path components
+    with os.Lstat and rejecting any symlink component or symlink target.
+- Engine pull now validates server-driven sync paths with vaultfs.SafePath
+  before existence checks, hashing, reads, atomic writes, or deletes.
+- Engine exists checks now use os.Lstat so a symlink target is not followed when
+  deciding whether a path exists.
+- Scanner now skips symlink entries before Info/Open, preventing upload reads
+  through symlinked Markdown files or symlinked directories.
+- Conflict writes now validate the generated conflict destination with
+  vaultfs.SafePath before ReadDir/MkdirAll/write, and skip symlinked existing
+  conflict candidates before parsing.
+- Policy: symlinked sync paths are rejected/skipped rather than supported.
+
+Regression scenarios and binary observables
+- Scanner symlinked file read:
+  - Invocation: go test -count=1 -v ./internal/syncagent/scanner -run TestScanVault_skipsSymlinkedMarkdownFile_whenTargetIsOutsideVault
+  - Observable: PASS; test creates a vault symlink linked.md to an outside
+    Markdown file, ScanVault omits linked.md, and a normal kept.md still hashes.
+  - Captured artifact: .omo/evidence/global-fix-symlink-containment-probe.log
+- Pull symlinked parent write:
+  - Invocation: go test -count=1 -v ./internal/syncagent/engine -run TestRunSyncPullWriteRejectsSymlinkedParent_whenTargetIsOutsideVault
+  - Observable: PASS; RunSync returns an error and no outside new.md is written.
+  - Captured artifact: .omo/evidence/global-fix-symlink-containment-probe.log
+- Pull symlinked parent delete:
+  - Invocation: go test -count=1 -v ./internal/syncagent/engine -run TestRunSyncPullDeleteRejectsSymlinkedParent_whenTargetIsOutsideVault
+  - Observable: PASS; RunSync returns an error and the outside old.md remains.
+  - Captured artifact: .omo/evidence/global-fix-symlink-containment-probe.log
+- Pull symlinked target delete:
+  - Invocation: go test -count=1 -v ./internal/syncagent/engine -run TestRunSyncPullDeleteRejectsSymlinkedFile_whenTargetIsOutsideVault
+  - Observable: PASS; RunSync returns an error, the outside old.md remains, and
+    the in-vault symlink itself remains.
+  - Captured artifact: .omo/evidence/global-fix-symlink-containment-probe.log
+- Conflict symlinked parent write:
+  - Invocation: go test -count=1 -v ./internal/syncagent/conflict -run TestWriteConflictFile_rejectsSymlinkedParent_whenTargetIsOutsideVault
+  - Observable: PASS; WriteFile returns an error and no outside conflict file is
+    written.
+  - Captured artifact: .omo/evidence/global-fix-symlink-containment-probe.log
+- Normal in-vault behavior:
+  - Invocation: go test -count=1 ./internal/syncagent/atomicfile ./internal/syncagent/conflict ./internal/syncagent/scanner ./internal/syncagent/engine
+  - Observable: exit 0; existing scanner, conflict, pull/write/delete, and
+    atomic file behavior still passes.
+  - Captured artifact: this file.
+
+Runtime audit hypotheses
+- Hypothesis 1: scanner still follows symlinked Markdown files.
+  - Evidence: symlink probe test passed; linked.md was not present in scanned
+    files while kept.md remained scanned.
+- Hypothesis 2: server pull can write through a symlinked parent.
+  - Evidence: symlink probe test passed; RunSync returned an error and the
+    outside destination file was absent.
+- Hypothesis 3: server pull can delete or pre-read through a symlink target.
+  - Evidence: symlink probe tests passed; RunSync returned errors and outside
+    files remained present for both symlinked parent and symlinked file cases.
+
+Verification commands
+- go test -count=1 ./internal/syncagent/atomicfile ./internal/syncagent/conflict ./internal/syncagent/scanner ./internal/syncagent/engine
+  - Exit code: 0
+- go test -count=1 ./...
+  - Exit code: 0
+- go vet ./...
+  - Exit code: 0
+- git diff --check
+  - Exit code: 0
+- set -o pipefail; go test -count=1 -v ./internal/syncagent/scanner ./internal/syncagent/conflict ./internal/syncagent/engine -run 'TestScanVault_skipsSymlinkedMarkdownFile_whenTargetIsOutsideVault|TestWriteConflictFile_rejectsSymlinkedParent_whenTargetIsOutsideVault|TestRunSyncPullWriteRejectsSymlinkedParent_whenTargetIsOutsideVault|TestRunSyncPullDeleteRejectsSymlinkedParent_whenTargetIsOutsideVault|TestRunSyncPullDeleteRejectsSymlinkedFile_whenTargetIsOutsideVault' 2>&1 | tee .omo/evidence/global-fix-symlink-containment-probe.log
+  - Exit code: 0
+- Pure LOC check for touched Go files
+  - Exit code: 0
+  - Largest touched file: internal/syncagent/engine/pull.go at 187 pure LOC.
+
+Cleanup
+- Symlink/file fixtures are created only under Go t.TempDir directories and are
+  cleaned by the Go test runner.
+- Retained evidence artifacts:
+  - .omo/evidence/global-fix-symlink-containment.txt
+  - .omo/evidence/global-fix-symlink-containment-probe.log
+- Left unrelated shared-worktree changes untouched, including pre-existing
+  docs/build-provenance edits, binary deletions, push-conflict engine changes,
+  and global-review evidence files.
+
+Residual risks
+- This fix rejects symlinked sync paths; users with intentional symlinked notes
+  will need to replace them with regular in-vault files.
+- The configured vault root itself is not rejected solely for being a symlink;
+  the policy applies to sync paths below the configured root.

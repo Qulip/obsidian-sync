@@ -1,0 +1,5 @@
+internal/syncagent/client/client.go      243
+internal/syncagent/client/dto.go       77
+internal/syncagent/client/errors.go       37
+internal/syncagent/client/client_test.go      235
+internal/syncagent/client/error_test.go       84

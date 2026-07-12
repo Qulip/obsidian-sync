@@ -1,0 +1,140 @@
+Global fix: build provenance / evidence executable cleanup
+Date: 2026-07-11
+Worktree: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+
+Scenario: stop using .omo/evidence as an install/build source for the Go sync agent.
+Changed files:
+- .gitignore
+- Makefile
+- README.md
+- docs/sync-agent.md
+- removed from branch tracking and working tree:
+  - .omo/evidence/builds/obsidian-sync-agent-darwin-amd64
+  - .omo/evidence/builds/obsidian-sync-agent-darwin-arm64
+  - .omo/evidence/builds/obsidian-sync-agent-linux-amd64
+  - .omo/evidence/builds/obsidian-sync-agent-linux-arm64
+  - .omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe
+  - .omo/evidence/obsidian-sync-agent
+
+Implementation:
+- Makefile BUILD_DIR now points to dist/obsidian-sync-agent.
+- .gitignore now ignores root dist/ build outputs.
+- README.md and docs/sync-agent.md install from
+  dist/obsidian-sync-agent/obsidian-sync-agent after make build-agent.
+- Docs still state the FastAPI server remains Python and the Python CLI entry
+  point remains available until an explicit removal. Docs mention release
+  binaries only as future/conditional attached artifacts, not as existing
+  published releases.
+
+Cleanup:
+- Invocation: git rm -r -- .omo/evidence/builds .omo/evidence/obsidian-sync-agent
+- Exit code: 0
+- Observable: six executable artifacts removed from branch tracking and working tree.
+
+Verification:
+1. Scenario: tracked executable artifacts are no longer under .omo/evidence.
+   Invocation: git ls-files .omo/evidence/builds .omo/evidence/obsidian-sync-agent
+   Exit code: 0
+   Observable: no output.
+   Captured artifact path: .omo/evidence/global-fix-build-provenance.txt
+
+2. Scenario: clean target removes the new local build directory.
+   Invocation: make clean-agent-builds
+   Exit code: 0
+   Observable: rm -rf dist/obsidian-sync-agent
+   Captured artifact path: .omo/evidence/global-fix-build-provenance.txt
+
+3. Scenario: host build writes to ignored dist output.
+   Invocation: make build-agent
+   Exit code: 0
+   Observable: dist/obsidian-sync-agent/obsidian-sync-agent created.
+   Captured artifact path: dist/obsidian-sync-agent/obsidian-sync-agent
+
+4. Scenario: cross-platform builds write to ignored dist output.
+   Invocation: make build-agent-all
+   Exit code: 0
+   Observable: darwin, linux, and windows artifacts created under
+   dist/obsidian-sync-agent/.
+   Captured artifact paths:
+   - dist/obsidian-sync-agent/obsidian-sync-agent-darwin-arm64
+   - dist/obsidian-sync-agent/obsidian-sync-agent-darwin-amd64
+   - dist/obsidian-sync-agent/obsidian-sync-agent-linux-amd64
+   - dist/obsidian-sync-agent/obsidian-sync-agent-linux-arm64
+   - dist/obsidian-sync-agent/obsidian-sync-agent-windows-amd64.exe
+
+5. Scenario: built artifacts are nonempty, including Windows .exe.
+   Invocation: test -s dist/obsidian-sync-agent/obsidian-sync-agent && test -s dist/obsidian-sync-agent/obsidian-sync-agent-darwin-arm64 && test -s dist/obsidian-sync-agent/obsidian-sync-agent-darwin-amd64 && test -s dist/obsidian-sync-agent/obsidian-sync-agent-linux-amd64 && test -s dist/obsidian-sync-agent/obsidian-sync-agent-linux-arm64 && test -s dist/obsidian-sync-agent/obsidian-sync-agent-windows-amd64.exe
+   Exit code: 0
+   Observable: all test -s checks passed.
+   Captured artifact paths and sizes:
+   - dist/obsidian-sync-agent/obsidian-sync-agent: 6069570 bytes
+   - dist/obsidian-sync-agent/obsidian-sync-agent-darwin-arm64: 6069570 bytes
+   - dist/obsidian-sync-agent/obsidian-sync-agent-darwin-amd64: 6567632 bytes
+   - dist/obsidian-sync-agent/obsidian-sync-agent-linux-amd64: 6430882 bytes
+   - dist/obsidian-sync-agent/obsidian-sync-agent-linux-arm64: 5963938 bytes
+   - dist/obsidian-sync-agent/obsidian-sync-agent-windows-amd64.exe: 6622208 bytes
+
+6. Scenario: local build outputs are ignored.
+   Invocation: git status --short --ignored dist/obsidian-sync-agent
+   Exit code: 0
+   Observable: !! dist/
+   Captured artifact path: .omo/evidence/global-fix-build-provenance.txt
+
+7. Scenario: Go unit/integration package tests.
+   Invocation: go test -count=1 ./...
+   Exit code: 1
+   Observable: failed in pre-existing/out-of-scope symlink containment tests:
+   - internal/syncagent/conflict: TestWriteConflictFile_rejectsSymlinkedParent_whenTargetIsOutsideVault
+   - internal/syncagent/scanner: TestScanVault_skipsSymlinkedMarkdownFile_whenTargetIsOutsideVault
+   Risk: this is the separate symlink-aware vault containment blocker from
+   global-review-security.md. This task explicitly forbids Go source edits, so
+   it was not changed here.
+   Captured artifact path: .omo/evidence/global-fix-build-provenance.txt
+
+8. Scenario: Go vet.
+   Invocation: go vet ./...
+   Exit code: 0
+   Observable: no output.
+   Captured artifact path: .omo/evidence/global-fix-build-provenance.txt
+
+9. Scenario: docs no longer install/build from .omo/evidence and preserve Python
+   FastAPI instructions.
+   Invocation: rg -n "\.omo/evidence/builds|dist/obsidian-sync-agent|uv run uvicorn|FastAPI|Python" README.md docs/sync-agent.md Makefile
+   Exit code: 0
+   Observable:
+   - no .omo/evidence/builds matches
+   - README.md and docs/sync-agent.md contain dist/obsidian-sync-agent install paths
+   - README.md still contains uv run uvicorn examples and Python/FastAPI text
+   - docs/sync-agent.md still states the server is Python FastAPI and the Python
+     entry point remains.
+   Captured artifact path: .omo/evidence/global-fix-build-provenance.txt
+
+10. Scenario: whitespace check.
+    Invocation: git diff --check
+    Exit code: 0
+    Observable: no output.
+    Captured artifact path: .omo/evidence/global-fix-build-provenance.txt
+
+11. Scenario: staged deletion whitespace check.
+    Invocation: git diff --cached --check
+    Exit code: 0
+    Observable: no output.
+    Captured artifact path: .omo/evidence/global-fix-build-provenance.txt
+
+12. Scenario: manual CLI QA for the newly built host artifact.
+    Invocation: dist/obsidian-sync-agent/obsidian-sync-agent --help
+    Exit code: 0
+    Observable: help output showed usage and sync/status commands.
+    Captured artifact path: dist/obsidian-sync-agent/obsidian-sync-agent
+
+13. Scenario: manual CLI QA bad input for the newly built host artifact.
+    Invocation: dist/obsidian-sync-agent/obsidian-sync-agent not-a-command
+    Exit code: 2
+    Observable: obsidian-sync-agent: unknown command "not-a-command"
+    Captured artifact path: dist/obsidian-sync-agent/obsidian-sync-agent
+
+Relevant pre-existing worktree context:
+- Unrelated modified Go test files were present in git status and were not
+  edited by this fix.
+- Existing untracked global-review evidence files were present and were not
+  modified by this fix.

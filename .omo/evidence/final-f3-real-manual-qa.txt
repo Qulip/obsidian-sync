@@ -1,0 +1,113 @@
+Final Verification Wave F3 - Real manual QA
+worktree=/Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+timestamp=2026-07-10T06:21:09Z
+binary=.omo/evidence/obsidian-sync-agent
+
+[build]
+$ go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent
+exit_code=0
+-rwxr-xr-x@ 1 ia03060_mac  staff  8917634 Jul 10 15:21 .omo/evidence/obsidian-sync-agent
+
+[root_help]
+surface=terminal CLI
+$ .omo/evidence/obsidian-sync-agent --help
+obsidian-sync-agent
+
+Usage:
+  obsidian-sync-agent --help
+  obsidian-sync-agent <command> [flags]
+
+Commands:
+  sync
+  status
+exit_code=0
+
+[sync_help]
+surface=terminal CLI
+$ .omo/evidence/obsidian-sync-agent sync --help
+Usage of sync:
+  -device-id string
+    	override the device id
+  -dry-run
+    	print planned actions without writing or pushing
+  -require-obsidian-refresh
+    	exit non-zero if the Obsidian refresh step fails
+  -server string
+    	server base url
+  -vault-id string
+    	server vault id
+  -vault-root string
+    	local vault directory
+  -verbose
+    	enable debug logging
+exit_code=0
+
+[status_help]
+surface=terminal CLI
+$ .omo/evidence/obsidian-sync-agent status --help
+Usage of status:
+  -device-id string
+    	override the device id
+  -server string
+    	server base url
+  -vault-id string
+    	server vault id
+  -vault-root string
+    	local vault directory
+  -verbose
+    	enable debug logging
+exit_code=0
+
+[missing_config]
+surface=terminal CLI
+$ env -u OBSIDIAN_SYNC_AGENT_SERVER -u OBSIDIAN_SYNC_AGENT_VAULT_ID -u OBSIDIAN_SYNC_AGENT_VAULT_ROOT -u OBSIDIAN_SYNC_AGENT_DEVICE_ID -u OBSIDIAN_SYNC_AGENT_DEVICE_NAME -u OBSIDIAN_SYNC_AGENT_TOKEN -u OBSIDIAN_LOCAL_REST_API_KEY .omo/evidence/obsidian-sync-agent sync --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.laCQwa8dE1
+configuration error: server base url is required (use --server, OBSIDIAN_SYNC_AGENT_SERVER, or config file server_base_url)
+exit_code=2
+
+[require_refresh_failure]
+surface=terminal CLI + local fake HTTP server
+fake_server_url=http://127.0.0.1:63339
+fake_server_pid=29098
+vault_config=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.URr1tHxvkk/vault/.obsidian-sync-agent/config.json
+$ env -u OBSIDIAN_LOCAL_REST_API_KEY /usr/bin/perl -e 'alarm 15; exec @ARGV' .omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:63339 --vault-id f3 --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.URr1tHxvkk/vault --device-id dev --require-obsidian-refresh
+pulled=0 applied=0 locally_deleted=0 pushed=1 remotely_deleted=0 conflicts=0 warnings=0
+obsidian refresh required but failed: obsidian reload requires an authenticated API key
+exit_code=3
+fake_server_log:
+"POST /vaults/f3/sync/devices HTTP/1.1" 200 -
+"GET /vaults/f3/sync/changes?limit=500&since=0 HTTP/1.1" 200 -
+"PUT /vaults/f3/files/refresh.md HTTP/1.1" 200 -
+"GET /vaults/f3/sync/changes?device_id=dev&limit=500&since=0 HTTP/1.1" 200 -
+"GET / HTTP/1.1" 200 -
+cleanup_fake_server=terminated pid 29098
+cleanup_runtime_root_removed=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.URr1tHxvkk
+
+[existing_live_artifact_inspection]
+artifact=.omo/evidence/task-8-go-sync-cli-migration-live-sync.txt
+contains scenario=create_push_from_a: PASS
+contains scenario=update_and_conflict: PASS
+contains exit_code=1: PASS
+contains scenario=resolved_conflict: PASS
+contains scenario=delete_propagation: PASS
+contains scenario=status: PASS
+contains scenario=dry_run: PASS
+contains result=PASS: PASS
+contains cleanup_uvicorn=terminated: PASS
+contains cleanup_docker_rm_exit=0: PASS
+contains cleanup_runtime_root_removed=: PASS
+
+[cleanup_scan]
+$ pgrep -fl "uvicorn|obsidian-sync-task8-pg"
+no matching processes
+$ docker ps --format {{.Names}} | grep obsidian-sync-task8-pg
+no matching docker containers
+
+[artifact_non_empty_check]
+    3758 .omo/evidence/final-f3-real-manual-qa.txt
+   14041 .omo/evidence/task-8-go-sync-cli-migration-live-sync.txt
+     482 .omo/evidence/task-8-go-sync-cli-migration-config-error.txt
+    1048 .omo/evidence/task-8-go-sync-cli-migration-refresh-error.txt
+     433 .omo/evidence/task-8-sync-help-exit0.txt
+     290 .omo/evidence/task-8-status-help-exit0.txt
+   23775 .omo/evidence/task-9-go-sync-cli-migration-builds.txt
+   43827 total

@@ -1,0 +1,6 @@
+$ go test -count=1 ./internal/syncagent/client -run TestClientGetChanges_readsFastAPINaiveTimestamp -v
+=== RUN   TestClientGetChanges_readsFastAPINaiveTimestamp
+--- PASS: TestClientGetChanges_readsFastAPINaiveTimestamp (0.00s)
+PASS
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/client	0.263s
+exit_code=0

@@ -1,0 +1,27 @@
+# github.com/Qulip/obsidian-sync/internal/syncagent/conflict [github.com/Qulip/obsidian-sync/internal/syncagent/conflict.test]
+internal/syncagent/conflict/conflict_test.go:16:9: undefined: Filename
+internal/syncagent/conflict/conflict_test.go:31:14: undefined: WriteFile
+internal/syncagent/conflict/conflict_test.go:31:24: undefined: Request
+internal/syncagent/conflict/conflict_test.go:81:9: undefined: Request
+internal/syncagent/conflict/conflict_test.go:91:16: undefined: WriteFile
+internal/syncagent/conflict/conflict_test.go:100:17: undefined: WriteFile
+internal/syncagent/conflict/conflict_test.go:130:14: undefined: WriteFile
+internal/syncagent/conflict/conflict_test.go:130:24: undefined: Request
+internal/syncagent/conflict/conflict_test.go:136:23: undefined: LocalDeletedPlaceholder
+internal/syncagent/conflict/conflict_test.go:137:23: undefined: ServerDeletedPlaceholder
+internal/syncagent/conflict/conflict_test.go:137:23: too many errors
+FAIL	github.com/Qulip/obsidian-sync/internal/syncagent/conflict [build failed]
+# github.com/Qulip/obsidian-sync/internal/syncagent/obsidian [github.com/Qulip/obsidian-sync/internal/syncagent/obsidian.test]
+internal/syncagent/obsidian/obsidian_test.go:15:9: undefined: Refresh
+internal/syncagent/obsidian/obsidian_test.go:15:22: undefined: Config
+internal/syncagent/obsidian/obsidian_test.go:35:9: undefined: Refresh
+internal/syncagent/obsidian/obsidian_test.go:35:39: undefined: Config
+internal/syncagent/obsidian/obsidian_test.go:51:9: undefined: Refresh
+internal/syncagent/obsidian/obsidian_test.go:51:39: undefined: Config
+internal/syncagent/obsidian/obsidian_test.go:57:41: undefined: RequireRefreshExitCode
+internal/syncagent/obsidian/obsidian_test.go:58:92: undefined: RequireRefreshExitCode
+internal/syncagent/obsidian/obsidian_test.go:77:9: undefined: Refresh
+internal/syncagent/obsidian/obsidian_test.go:77:39: undefined: Config
+internal/syncagent/obsidian/obsidian_test.go:77:39: too many errors
+FAIL	github.com/Qulip/obsidian-sync/internal/syncagent/obsidian [build failed]
+FAIL

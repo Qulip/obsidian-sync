@@ -1,0 +1,5 @@
+cleanup receipt
+- no files outside internal/syncagent/client and .omo/evidence/task-5-* intentionally edited by Task 5
+- gofmt run on client package files
+- no third-party dependencies added
+- .omo/plans and .omo/start-work/ledger.jsonl left untouched

@@ -1,0 +1,156 @@
+# F1 Plan Compliance Gate Review
+
+recommendation: APPROVE
+
+blockers:
+- None for F1 plan compliance.
+
+originalIntent:
+- Verify the Go sync CLI migration branch against the staged plan.
+- Approve F1 only if product-code changes match the plan and Python server
+  implementation scope remains untouched except planned docs/tests.
+
+desiredOutcome:
+- The branch should show a Go local sync-agent migration with docs/build/test
+  artifacts, while the Python FastAPI server remains the server implementation.
+
+userOutcomeReview:
+- The user-visible branch outcome matches F1 scope. Product changes are the
+  planned Go client/module, Go tests, Makefile build target, README/docs sync
+  agent updates, and one Python contract test.
+- No files under `src/obsidian_sync` changed in `main...HEAD`.
+- The only Python file changed is `tests/sync_agent/test_contract.py`, which is
+  explicitly planned by task 1 as a sync-agent contract characterization test.
+- Python server implementation, routes, repositories, models, migrations, MCP
+  server, and vectorizing flow are untouched by the changed path set.
+
+checked artifact paths:
+- `.omo/plans/go-sync-cli-migration.md`
+- `README.md`
+- `docs/sync-agent.md`
+- `Makefile`
+- `go.mod`
+- `cmd/obsidian-sync-agent/main.go`
+- `cmd/obsidian-sync-agent/main_test.go`
+- `internal/syncagent/**`
+- `tests/sync_agent/test_contract.py`
+- `.omo/evidence/task-3-review-and-qa-matrix.txt`
+- `.omo/evidence/task-4-review-and-qa-matrix.txt`
+- `.omo/evidence/task-6-review-and-qa-matrix.txt`
+- `.omo/evidence/task-7-review-work.txt`
+- `.omo/evidence/task-8-review-and-qa-matrix.txt`
+- `.omo/evidence/task-9-review-and-qa-matrix.txt`
+- `.omo/evidence/go-sync-cli-migration-task-6-gate-review.md`
+- `.omo/evidence/go-sync-cli-migration-task-7-second-fix-gate-review.md`
+- `.omo/evidence/go-sync-cli-migration-task-8-regate-review.md`
+- `.omo/evidence/go-sync-cli-migration-task-9-regate-review.md`
+
+required command results:
+- `git status --short --untracked-files=all`
+  - exit: 0
+  - observed stdout before writing this evidence: empty clean worktree
+- `git log --oneline --decorate -12`
+  - exit: 0
+  - observed HEAD sequence:
+    - `c1e6211 (HEAD -> work/go-sync-cli-migration) docs(sync-agent): document go binary distribution`
+    - `76517a1 feat(sync-agent): wire go cli and prove live parity`
+    - `080ec3a feat(sync-agent): port sync engine to go`
+    - `dc6d5a3 test(sync-agent): record local state verification`
+    - `0d4d793 test(sync-agent): record conflict refresh verification`
+    - `988b67d feat(sync-agent): add local state and refresh packages`
+    - `dcf0275 test(sync-agent): record config port verification`
+    - `cf628be feat(sync-agent): scaffold go cli and client foundations`
+    - `db44fcf (main) agent: AGENTS.md update`
+- `git diff --stat main...HEAD`
+  - exit: 0
+  - observed summary: `166 files changed, 8825 insertions(+), 6 deletions(-)`
+  - product subset summary (`cmd`, `internal`, `go.mod`, `Makefile`,
+    `README.md`, `docs/sync-agent.md`, `tests/sync_agent/test_contract.py`):
+    `47 files changed, 4858 insertions(+), 6 deletions(-)`
+- `git diff --name-only main...HEAD`
+  - exit: 0
+  - changed-path category counts:
+    - Go/module files under `cmd`/`internal`/`go.mod`: 43
+    - docs: 2
+    - Python tests: 1
+    - Python server implementation under `src/obsidian_sync`: 0
+    - `.omo` plan/evidence/ledger/draft artifacts: 119
+    - other: 1 `Makefile`
+- `git diff --check`
+  - exit: 0
+  - observed stdout/stderr: empty
+- `rg -n '^- \[[ x]\] ([0-9]+|F[0-9]+)\.' .omo/plans/go-sync-cli-migration.md`
+  - exit: 0
+  - observed plan checkboxes: tasks 1 through 9 checked, F1 through F4
+    unchecked. F1 text requires plan compliance and Python server scope audit.
+
+additional inspection commands:
+- `git diff --name-status main...HEAD -- '*.py' 'src/**' 'tests/**'`
+  - exit: 0
+  - observed output: `A tests/sync_agent/test_contract.py`
+- `git diff --name-only main...HEAD -- src/obsidian_sync`
+  - exit: 0
+  - observed stdout: empty
+- `git diff --stat main...HEAD -- 'src/obsidian_sync/**' 'alembic/**' 'db/**' 'scripts/**' 'main.py' 'pyproject.toml'`
+  - exit: 0
+  - observed stdout: empty
+- Pure LOC scan over changed Go files
+  - exit: 0
+  - observed: no changed Go file exceeds the 250 pure-LOC defect ceiling.
+    Highest files: `cmd/obsidian-sync-agent/main_test.go` 250,
+    `internal/syncagent/config/config_test.go` 246,
+    `internal/syncagent/engine/engine_test.go` 243,
+    `internal/syncagent/client/client.go` 243.
+- `rg -n '^func .*\\([^)]*,[^)]*,[^)]*,[^)]*,' cmd internal`
+  - exit: 0
+  - observed: only `internal/syncagent/obsidian/obsidian.go` `doJSON` has a
+    4-plus-parameter production signature. It is a shared HTTP boundary helper
+    in the planned Obsidian adapter, not Python server scope or plan drift.
+- `git diff --check main...HEAD`
+  - exit: 2
+  - observed: whitespace warnings are limited to `.omo` evidence artifacts:
+    two blank-line-at-EOF warnings and captured CLI help text with
+    space-before-tab indentation. No product-code whitespace warning was
+    observed. This was an extra branch-diff check; the requested exact
+    `git diff --check` command above exited 0.
+
+plan compliance review:
+- Plan must-have additions are represented in the diff:
+  - root `go.mod`
+  - `cmd/obsidian-sync-agent/main.go`
+  - `internal/syncagent/config`, `manifest`, `scanner`, `rules`, `client`,
+    `engine`, `conflict`, `obsidian`, and `atomicfile` packages
+  - `sync`/`status` CLI surface
+  - docs and `Makefile` cross-build automation
+  - Python sync-agent contract tests before porting
+- Plan must-not-have guardrails are respected for F1:
+  - no FastAPI server rewrite
+  - no `src/obsidian_sync` implementation edits
+  - no Python CLI removal
+  - no endpoint/schema/migration/server-path changes in the changed path set
+
+remove-ai-slops / programming direct pass:
+- Required skills were loaded and applied directly.
+- Direct F1 slop pass found no scope-drift production code outside the planned
+  Go client and docs/test surfaces.
+- No deletion-only tests, tests that merely verify a requested removal,
+  tautological tests, or obvious implementation-mirroring tests were found in
+  the inspected F1 scope. The Python contract test pins CLI help, exit codes,
+  manifest JSON shape, and conflict file content.
+- No unnecessary production framework/dependency drift was found; `go.mod` adds
+  only the module and Go version.
+- No changed Go file exceeds 250 pure LOC.
+- Existing per-task review artifacts include explicit programming and
+  remove-ai-slops/overfit coverage for the major changed scopes inspected
+  here. F1 did not rely on those claims without direct path and diff checks.
+
+exact evidence gaps:
+- No original external notepad path was provided for F1.
+- There is no single branch-wide executor code-review report supplied for F1;
+  available coverage is per-task plus this direct F1 audit.
+- Extra branch-wide `git diff --check main...HEAD` reports whitespace issues in
+  evidence artifacts, not product code. This is not a F1 product-scope blocker,
+  but F2 or a merge-readiness gate may choose to clean or reject those artifacts.
+
+final recommendation:
+APPROVE

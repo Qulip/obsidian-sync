@@ -1,0 +1,6 @@
+Command: awk pure LOC for changed engine files
+internal/syncagent/engine/engine.go 153
+internal/syncagent/engine/test_helpers_test.go 175
+internal/syncagent/engine/engine_test.go 243
+internal/syncagent/engine/dry_run_test.go 33
+Exit code: 0

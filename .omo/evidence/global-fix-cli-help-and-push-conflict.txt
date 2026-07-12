@@ -1,0 +1,82 @@
+DoneClaim: global code-quality blockers fixed
+
+Worktree: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+Date: 2026-07-11
+
+Changed files:
+- cmd/obsidian-sync-agent/main.go
+- cmd/obsidian-sync-agent/help_test.go
+- cmd/obsidian-sync-agent/main_test.go
+- internal/syncagent/engine/push.go
+- internal/syncagent/engine/fake_client_test.go
+- internal/syncagent/engine/push_conflict_test.go
+- .omo/evidence/global-fix-cli-help-and-push-conflict.txt
+
+Implementation:
+- Explicit subcommand help is detected before flag parsing and printed to stdout.
+- Flag parse errors keep the flag package output and usage on stderr and return exit 2.
+- Missing config errors are asserted to keep stdout empty and stderr populated.
+- pushConflict now fetches server content through serverContentAfterConflict.
+- Only HTTP 404 APIError or a successful deleted file response uses conflict.ServerDeletedPlaceholder.
+- Non-not-found GetFile failures return an ErrSync-wrapped error with path context and do not write a conflict file.
+
+Regression coverage:
+- cmd/obsidian-sync-agent/help_test.go asserts sync/status --help exit 0, help on stdout, stderr empty.
+- cmd/obsidian-sync-agent/main_test.go asserts unknown flag and missing config write stdout empty / stderr populated.
+- internal/syncagent/engine/push_conflict_test.go asserts:
+  - non-404 GetFile failure after push conflict returns ErrSync and writes no conflict file.
+  - API 404 GetFile failure after push conflict writes a conflict file containing ServerDeletedPlaceholder.
+
+Verification commands and exact exit codes:
+- go test -count=1 ./cmd/obsidian-sync-agent
+  - exit 0
+  - observable: ok github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent
+- go test -count=1 ./internal/syncagent/engine
+  - exit 0
+  - observable: ok github.com/Qulip/obsidian-sync/internal/syncagent/engine
+- go test -count=1 ./cmd/obsidian-sync-agent ./internal/syncagent/engine ./internal/syncagent/client
+  - exit 0
+  - observable: all three requested packages reported ok
+- go test -count=1 ./...
+  - exit 0
+  - observable: all repository packages reported ok or [no test files]
+- go vet ./...
+  - exit 0
+- go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent
+  - exit 0
+  - artifact: .omo/evidence/obsidian-sync-agent
+- .omo/evidence/obsidian-sync-agent sync --help > .omo/evidence/global-fix-sync-help.stdout 2> .omo/evidence/global-fix-sync-help.stderr
+  - exit 0
+  - stdout artifact: .omo/evidence/global-fix-sync-help.stdout (380 bytes, contains Usage of sync)
+  - stderr artifact: .omo/evidence/global-fix-sync-help.stderr (0 bytes)
+- .omo/evidence/obsidian-sync-agent status --help > .omo/evidence/global-fix-status-help.stdout 2> .omo/evidence/global-fix-status-help.stderr
+  - exit 0
+  - stdout artifact: .omo/evidence/global-fix-status-help.stdout (233 bytes, contains Usage of status)
+  - stderr artifact: .omo/evidence/global-fix-status-help.stderr (0 bytes)
+- .omo/evidence/obsidian-sync-agent sync --not-a-real-flag > .omo/evidence/global-fix-unknown-flag.stdout 2> .omo/evidence/global-fix-unknown-flag.stderr
+  - exit 2
+  - stdout artifact: .omo/evidence/global-fix-unknown-flag.stdout (0 bytes)
+  - stderr artifact: .omo/evidence/global-fix-unknown-flag.stderr (428 bytes, contains flag provided but not defined)
+- env -u OBSIDIAN_SYNC_AGENT_SERVER -u OBSIDIAN_SYNC_AGENT_VAULT_ID -u OBSIDIAN_SYNC_AGENT_VAULT_ROOT -u OBSIDIAN_SYNC_AGENT_DEVICE_ID -u OBSIDIAN_SYNC_AGENT_DEVICE_NAME -u OBSIDIAN_SYNC_AGENT_TOKEN -u OBSIDIAN_LOCAL_REST_API_KEY .omo/evidence/obsidian-sync-agent status --vault-root "$tmpdir" --vault-id vault > .omo/evidence/global-fix-missing-config.stdout 2> .omo/evidence/global-fix-missing-config.stderr
+  - exit 2
+  - stdout artifact: .omo/evidence/global-fix-missing-config.stdout (0 bytes)
+  - stderr artifact: .omo/evidence/global-fix-missing-config.stderr (124 bytes, contains configuration error)
+- git diff --check
+  - exit 0
+
+File-size review:
+- cmd/obsidian-sync-agent/main.go: 223 pure LOC (warning band, below defect threshold)
+- cmd/obsidian-sync-agent/main_test.go: 243 pure LOC (warning band, below defect threshold)
+- cmd/obsidian-sync-agent/help_test.go: 90 pure LOC
+- internal/syncagent/engine/push.go: 167 pure LOC
+- internal/syncagent/engine/fake_client_test.go: 95 pure LOC
+- internal/syncagent/engine/push_conflict_test.go: 78 pure LOC
+
+Cleanup:
+- Temporary directory used for the missing-config binary check was removed.
+- Built binary and stdout/stderr capture artifacts were left under .omo/evidence as requested evidence.
+- No scanner/conflict/atomicfile symlink containment files, README/docs/Makefile, build scripts, plan files, or ledger files were edited by this task.
+
+Risks:
+- The worktree contains unrelated pre-existing modifications and untracked evidence/build artifacts outside this task scope. They were not reverted.
+- main.go and main_test.go remain in the 200-250 pure-LOC warning band; future substantive edits should consider splitting CLI parsing/tests.

@@ -1,0 +1,25 @@
+Task 6 diff scope
+Worktree: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+Date: 2026-07-09
+
+Task 6 owned product files:
+?? internal/syncagent/conflict/conflict.go
+?? internal/syncagent/conflict/conflict_test.go
+?? internal/syncagent/obsidian/obsidian.go
+?? internal/syncagent/obsidian/obsidian_test.go
+
+Task 6 owned evidence files:
+?? .omo/evidence/task-6-go-sync-cli-migration-conflict.txt
+?? .omo/evidence/task-6-go-sync-cli-migration-obsidian.txt
+?? .omo/evidence/task-6-red.txt
+?? .omo/evidence/task-6-review-and-qa-matrix.txt
+?? .omo/evidence/task-6-diff-scope.txt
+
+Relevant unrelated dirty worktree line:
+?? tests/sync_agent/test_contract.py
+
+Scope note:
+tests/sync_agent/test_contract.py is Task 1 migration contract-test scope/unrelated to Task 6. It was inspected only to document the dirty-worktree boundary and was not edited or removed.
+
+Command basis:
+git status --short -- internal/syncagent/conflict/conflict.go internal/syncagent/conflict/conflict_test.go internal/syncagent/obsidian/obsidian.go internal/syncagent/obsidian/obsidian_test.go .omo/evidence/task-6-go-sync-cli-migration-conflict.txt .omo/evidence/task-6-go-sync-cli-migration-obsidian.txt .omo/evidence/task-6-red.txt .omo/evidence/task-6-review-and-qa-matrix.txt .omo/evidence/task-6-diff-scope.txt tests/sync_agent/test_contract.py

@@ -1,0 +1,17 @@
+Before refactor long-signature evidence captured from Task 7 gate blocker.
+
+The rejected helper signatures grouped unrelated run state as positional
+parameters. The blocker cited these production helpers:
+
+internal/syncagent/engine/pull.go:18:func pull(ctx context.Context, cfg config.AgentConfig, state *manifest.Manifest, syncClient SyncClient, summary *Summary, deviceID string, now func() time.Time) error
+internal/syncagent/engine/pull.go:57:func applyChange(ctx context.Context, cfg config.AgentConfig, state *manifest.Manifest, syncClient SyncClient, summary *Summary, item client.SyncChangeItem, now func() time.Time) error
+internal/syncagent/engine/pull.go:84:func applyDelete(cfg config.AgentConfig, state *manifest.Manifest, summary *Summary, item client.SyncChangeItem, destination string, entry manifest.Entry, tracked bool, now func() time.Time) error
+internal/syncagent/engine/pull.go:137:func applyWrite(ctx context.Context, cfg config.AgentConfig, state *manifest.Manifest, syncClient SyncClient, summary *Summary, item client.SyncChangeItem, destination string, entry manifest.Entry, tracked bool, now func() time.Time) error
+internal/syncagent/engine/pull.go:179:func writePullConflict(cfg config.AgentConfig, state *manifest.Manifest, summary *Summary, item client.SyncChangeItem, entry manifest.Entry, tracked bool, localHash string, serverFile client.FileContentData, destination string, now func() time.Time) error
+internal/syncagent/engine/push.go:17:func push(ctx context.Context, cfg config.AgentConfig, state *manifest.Manifest, syncClient SyncClient, summary *Summary, local scanner.LocalChanges, skipPaths map[string]struct{}, now func() time.Time) error
+internal/syncagent/engine/push.go:80:func pushUpsert(ctx context.Context, cfg config.AgentConfig, state *manifest.Manifest, syncClient SyncClient, summary *Summary, path string, base int, now func() time.Time) error
+internal/syncagent/engine/push.go:123:func pushDelete(ctx context.Context, cfg config.AgentConfig, state *manifest.Manifest, syncClient SyncClient, summary *Summary, path string, now func() time.Time) error
+internal/syncagent/engine/push.go:160:func pushConflict(ctx context.Context, cfg config.AgentConfig, syncClient SyncClient, summary *Summary, path string, conflictErr *client.ConflictError, localContent string, now func() time.Time) error
+
+Fix direction: group shared lifecycle state into syncRun and group per-file
+state into pullChange / pushFile instead of passing long positional lists.

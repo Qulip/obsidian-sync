@@ -1,0 +1,6 @@
+internal/syncagent/client/client.go
+internal/syncagent/client/client_test.go
+internal/syncagent/client/doc.go
+internal/syncagent/client/dto.go
+internal/syncagent/client/error_test.go
+internal/syncagent/client/errors.go

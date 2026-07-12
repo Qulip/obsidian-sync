@@ -1,0 +1,13 @@
+Command: go test -count=1 ./...
+ok  	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent	10.884s
+?   	github.com/Qulip/obsidian-sync/internal/syncagent	[no test files]
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile	2.113s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/client	11.390s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/config	2.505s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/conflict	13.399s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	14.029s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/manifest	0.413s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/obsidian	13.799s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/rules	1.677s
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/scanner	12.953s
+Exit code: 0

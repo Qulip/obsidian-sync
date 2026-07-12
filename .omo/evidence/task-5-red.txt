@@ -1,0 +1,14 @@
+# github.com/Qulip/obsidian-sync/internal/syncagent/client [github.com/Qulip/obsidian-sync/internal/syncagent/client.test]
+internal/syncagent/client/client_test.go:25:12: undefined: RegisterDeviceRequest
+internal/syncagent/client/client_test.go:42:66: undefined: RegisterDeviceRequest
+internal/syncagent/client/client_test.go:87:58: undefined: ChangesRequest
+internal/syncagent/client/client_test.go:123:13: undefined: PutFileRequest
+internal/syncagent/client/client_test.go:142:13: undefined: DeleteFileRequest
+internal/syncagent/client/client_test.go:176:9: undefined: FileRef
+internal/syncagent/client/client_test.go:179:54: undefined: PutFileRequest
+internal/syncagent/client/client_test.go:185:57: undefined: DeleteFileRequest
+internal/syncagent/client/client_test.go:189:69: undefined: StatusRequest
+internal/syncagent/client/client_test.go:341:65: undefined: Client
+internal/syncagent/client/client_test.go:189:69: too many errors
+FAIL	github.com/Qulip/obsidian-sync/internal/syncagent/client [build failed]
+FAIL

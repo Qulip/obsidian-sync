@@ -1,0 +1,6 @@
+surface: terminal
+invocation: make build-agent
+mkdir -p dist/obsidian-sync-agent
+go build -trimpath -ldflags "-s -w" -o dist/obsidian-sync-agent/obsidian-sync-agent ./cmd/obsidian-sync-agent
+
+exit_code=0

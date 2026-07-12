@@ -1,0 +1,6 @@
+Command: go test -count=1 ./internal/syncagent/engine -run TestRunSyncReportsObsidianRefreshWarning -v
+=== RUN   TestRunSyncReportsObsidianRefreshWarning
+--- PASS: TestRunSyncReportsObsidianRefreshWarning (0.00s)
+PASS
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	0.316s
+Exit code: 0

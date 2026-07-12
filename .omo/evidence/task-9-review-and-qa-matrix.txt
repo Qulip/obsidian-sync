@@ -1,0 +1,168 @@
+Task 9 review and QA matrix
+UTC: 2026-07-10T06:10:00Z
+PWD: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+Scope: evidence-only repair for the Task 9 gate evidence gap.
+
+Notepad path
+- No external Task 9 notepad was used or provided.
+
+Changed in this pass
+- Added only this artifact:
+  .omo/evidence/task-9-review-and-qa-matrix.txt
+- No README.md, docs/sync-agent.md, Makefile, product code, plan checkbox,
+  or ledger files were edited in this pass.
+
+Code review summary
+- README.md: Task 9 docs move user-facing local client examples from
+  `uv run obsidian-sync-agent` to the Go `obsidian-sync-agent` binary while
+  preserving Python FastAPI server instructions. The text explicitly says
+  Dockerfile/server execution remain Python-focused and that unpublished
+  release artifacts are not being claimed as available.
+- README.md: Build verification commands now include `go test ./...`,
+  `go vet ./...`, `make build-agent`, and `make build-agent-all`. The
+  cross-build target list documents darwin/arm64, darwin/amd64, linux/amd64,
+  linux/arm64, and windows/amd64.
+- docs/sync-agent.md: The install section documents the Go binary as the
+  recommended local client distribution shape, gives local host and
+  cross-platform build commands, and keeps Python CLI coexistence/rollback
+  wording.
+- Makefile: The new build targets are small and direct: `build-agent`,
+  `build-agent-all`, and `clean-agent-builds`. The target commands use a
+  single package variable, a single output directory variable, and explicit
+  per-target Go environment assignments.
+- No product Go/Python behavior changed. Verification invocation:
+  `git diff -- src cmd internal tests go.mod go.sum pyproject.toml`.
+  Binary observable: empty stdout, exit 0. Captured in this review session;
+  no separate product-diff artifact was created because this task is only the
+  missing Task 9 matrix artifact.
+
+Manual QA summary and artifact paths
+- Scenario: clean Task 9 Go validation and cross-build after docs/Makefile
+  edits.
+  Invocation: see `.omo/evidence/task-9-go-sync-cli-migration-builds.txt`.
+  Binary observable: `go test -count=1 ./...` exit 0, `go vet ./...` exit 0,
+  `make build-agent-all` exit 0, and strict per-target `go build` commands
+  exit 0.
+  Captured artifact path:
+  `.omo/evidence/task-9-go-sync-cli-migration-builds.txt`.
+- Scenario: required cross-build artifacts exist and are non-empty.
+  Invocation: recorded `test -s`, `wc -c`, and artifact size checks in
+  `.omo/evidence/task-9-go-sync-cli-migration-builds.txt`.
+  Binary observable: five `ARTIFACT_OK` rows with non-zero byte counts.
+  Captured artifact paths:
+  `.omo/evidence/builds/obsidian-sync-agent-darwin-arm64`
+  `.omo/evidence/builds/obsidian-sync-agent-darwin-amd64`
+  `.omo/evidence/builds/obsidian-sync-agent-linux-amd64`
+  `.omo/evidence/builds/obsidian-sync-agent-linux-arm64`
+  `.omo/evidence/builds/obsidian-sync-agent-windows-amd64.exe`
+- Scenario: host-built binary CLI surface.
+  Invocation: `.omo/evidence/builds/obsidian-sync-agent --help`.
+  Binary observable: help output lists `sync` and `status`; exit 0.
+  Captured artifact path:
+  `.omo/evidence/task-9-go-sync-cli-migration-builds.txt`.
+- Scenario: missing configuration remains a real CLI error path.
+  Invocation:
+  `env -i .omo/evidence/builds/obsidian-sync-agent sync --vault-root /tmp/obsidian-sync-task9-missing-config`.
+  Binary observable: configuration error text and observed_exit=2.
+  Captured artifact path:
+  `.omo/evidence/task-9-go-sync-cli-migration-builds.txt`.
+- Scenario: docs retain Go client and Python server/coexistence wording.
+  Invocation:
+  `rg -n 'Go로|make build-agent|make build-agent-all|Python CLI|FastAPI 서버|uv run uvicorn' README.md docs/sync-agent.md`.
+  Binary observable: matches in README.md and docs/sync-agent.md; exit 0.
+  Captured artifact path:
+  `.omo/evidence/task-9-go-sync-cli-migration-builds.txt`.
+
+Programming checks for Go build automation
+- No product Go behavior change: product/source diff check across `src`,
+  `cmd`, `internal`, `tests`, `go.mod`, `go.sum`, and `pyproject.toml`
+  produced no output.
+- Cross-build commands are explicit:
+  `CGO_ENABLED=0 GOOS=darwin GOARCH=arm64`,
+  `CGO_ENABLED=0 GOOS=darwin GOARCH=amd64`,
+  `CGO_ENABLED=0 GOOS=linux GOARCH=amd64`,
+  `CGO_ENABLED=0 GOOS=linux GOARCH=arm64`, and
+  `CGO_ENABLED=0 GOOS=windows GOARCH=amd64`.
+- Tests/vet/build evidence exists:
+  `.omo/evidence/task-9-go-sync-cli-migration-builds.txt` records
+  `go test -count=1 ./...`, `go vet ./...`, `make build-agent-all`, strict
+  per-target `go build` commands, and non-zero artifact size checks.
+- Makefile target shape is intentionally simple for this repo:
+  `.PHONY` declarations, variableized package/output directory/build flags,
+  direct `go build` invocations, no shell loops, no eval, no indirect script
+  generation, and no unquoted user-provided shell input. That is typed-shell-
+  safe enough for fixed repository build targets.
+
+remove-ai-slops / overfit / slop coverage
+- No fake release/download claims: docs say release binaries may be used only
+  if attached, and explicitly avoid claiming unpublished release artifacts.
+- No speculative CI/Goreleaser: Task 9 adds local Makefile build automation
+  only.
+- No overbroad abstraction: Makefile directly enumerates required targets
+  instead of adding a release framework or generated matrix system.
+- No unrelated docs churn: docs changes are limited to Go sync-agent install,
+  usage, verification, and Python server/CLI coexistence.
+- Artifact sizes verified rather than trusting success text only:
+  `.omo/evidence/task-9-go-sync-cli-migration-builds.txt` records byte counts
+  for all five cross-build binaries.
+- No temp/debug artifacts: no server/watch process was started; only intended
+  Task 9 build outputs remain under `.omo/evidence/builds/`.
+- No excessive/useless tests, deletion-only tests, tautological tests, or
+  implementation-mirroring tests were added in Task 9.
+- No unnecessary production extraction, parsing, normalization helper, or
+  behavior-changing cleanup was introduced in Task 9.
+
+Dirty worktree scope
+- Expected Task 9 dirty scope before this evidence-only repair:
+  README.md, docs/sync-agent.md, Makefile, `.omo/evidence/builds/`,
+  `.omo/evidence/task-9-go-sync-cli-migration-builds.txt`, and
+  `.omo/evidence/go-sync-cli-migration-task-9-gate-review.md`.
+- This pass adds only:
+  `.omo/evidence/task-9-review-and-qa-matrix.txt`.
+- Task 9 changes are docs/build/evidence only; product source diff is empty.
+
+Adversarial probes
+- stale_state: PASS. Existing build evidence records `make clean-agent-builds`
+  before test/vet/build batches and strict per-target rebuilds.
+- dirty_worktree: PASS/expected. The dirty files are Task 9 docs/build/evidence
+  artifacts; this pass adds only the missing matrix artifact.
+- misleading_success_output: PASS. Evidence uses non-zero file sizes and
+  `test -s`, not success text alone.
+- hung_long_commands: PASS. Existing evidence records bounded `go test`,
+  `go vet`, and build commands completing; no long-running process was
+  started for this matrix repair.
+- flaky_tests: PASS. Existing Task 9 evidence uses `go test -count=1 ./...`.
+- malformed_input: NOT_APPLICABLE. Task 9 did not add or change CLI input
+  parsing behavior.
+- prompt_injection: NOT_APPLICABLE. No external untrusted instructions were
+  executed for Task 9.
+- cancel_resume: NOT_APPLICABLE. No interruption was observed while creating
+  this evidence-only repair.
+- repeated_interruptions: NOT_APPLICABLE. No repeated interruptions were
+  observed while creating this evidence-only repair.
+
+No-running-resource cleanup
+- No server, watcher, or background process was started in this repair pass.
+- Existing Task 9 evidence also records no running server/watcher/background
+  resource started during the build verification.
+
+Gate blocker addressed
+- The missing Task 9 code-review/manual-QA evidence artifact now exists at
+  `.omo/evidence/task-9-review-and-qa-matrix.txt`.
+- The artifact explicitly covers programming checks, remove-ai-slops/overfit
+  checks, manual QA paths, dirty scope, adversarial probes, no-running-resource
+  cleanup, and the notepad status.
+
+Post-create verification receipt
+- Scenario: requested artifact diff shows only this new matrix artifact.
+  Invocation:
+  `git diff -- .omo/evidence/task-9-review-and-qa-matrix.txt`.
+  Binary observable: diff contains one `new file mode 100644` entry for
+  `.omo/evidence/task-9-review-and-qa-matrix.txt`; exit 0.
+  Captured artifact path:
+  `.omo/evidence/task-9-review-and-qa-matrix.txt`.
+- Scenario: whitespace/conflict-marker validation.
+  Invocation: `git diff --check`.
+  Binary observable: no stdout/stderr; exit 0.
+  Captured artifact path:
+  `.omo/evidence/task-9-review-and-qa-matrix.txt`.

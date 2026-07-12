@@ -1,0 +1,24 @@
+surface=terminal CLI direct shell + disposable Python HTTP server
+runtime_root=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.RDikkN8XLQ
+server_pid=11117
+server_url=http://127.0.0.1:49919
+config=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.RDikkN8XLQ/vault/.obsidian-sync-agent/config.json
+$ env -u OBSIDIAN_LOCAL_REST_API_KEY /usr/bin/perl -e 'alarm 15; exec @ARGV' .omo/evidence/obsidian-sync-agent sync --server http://127.0.0.1:49919 --vault-id fresh --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.RDikkN8XLQ/vault --device-id dev --require-obsidian-refresh
+pulled=0 applied=0 locally_deleted=0 pushed=1 remotely_deleted=0 conflicts=0 warnings=0
+obsidian refresh required but failed: obsidian reload requires an authenticated API key
+exit_code=3
+server_log:
+49919
+POST /vaults/fresh/sync/devices
+"POST /vaults/fresh/sync/devices HTTP/1.1" 200 -
+GET /vaults/fresh/sync/changes?limit=500&since=0
+"GET /vaults/fresh/sync/changes?limit=500&since=0 HTTP/1.1" 200 -
+PUT /vaults/fresh/files/refresh.md body={"device_id":"dev","base_revision":0,"content_hash":"463b54e8bc2adc5910d24637f5e543fc8a44bc6cefe0b0fdc40bb8406f792236","content":"refresh fresh\n"}
+
+"PUT /vaults/fresh/files/refresh.md HTTP/1.1" 200 -
+GET /vaults/fresh/sync/changes?device_id=dev&limit=500&since=0
+"GET /vaults/fresh/sync/changes?device_id=dev&limit=500&since=0 HTTP/1.1" 200 -
+GET /
+"GET / HTTP/1.1" 200 -
+cleanup_server=terminated pid 11117
+cleanup_runtime_root_removed=/var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.RDikkN8XLQ

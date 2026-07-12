@@ -1,0 +1,2 @@
+$ go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent
+exit_code=0

@@ -1,0 +1,5 @@
+surface: terminal CLI
+invocation: env HOME=/Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/global-review-qa-rerun/require-refresh.Wn5xD8/home XDG_CONFIG_HOME=/Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/global-review-qa-rerun/require-refresh.Wn5xD8/config /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/dist/obsidian-sync-agent/obsidian-sync-agent sync --server http://127.0.0.1:9 --vault-id qa-rerun --vault-root /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree/.omo/evidence/global-review-qa-rerun/require-refresh.Wn5xD8/vault --device-id qa-device --require-refresh
+exit_code=2
+stdout_bytes=       0
+stderr_bytes=     428

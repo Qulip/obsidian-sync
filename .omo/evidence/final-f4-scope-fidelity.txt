@@ -1,0 +1,109 @@
+F4 Scope Fidelity Gate - Go sync CLI migration
+
+recommendation: REJECT
+
+originalIntent:
+- Verify the Go sync-agent migration against docs/sync-agent.md, README.md, Python sync-agent source/tests, and Task 1-9 evidence.
+- Pass only if config/env/manifest/conflict/ignore/exit-code contracts are unchanged, or intentional deviations have explicit user approval.
+
+desiredOutcome:
+- A Go obsidian-sync-agent binary whose sync/status behavior, flags, config/env precedence, manifest shape, conflict rules, ignore rules, and exit-code behavior match the existing Python sync-agent contract.
+
+commands run:
+- go test -count=1 ./cmd/obsidian-sync-agent ./internal/syncagent/... -> exit 0.
+- uv run pytest -p no:cacheprovider tests/sync_agent -> exit 4. Pytest did not collect tests because tests/conftest.py requires .env or database env and .env is missing.
+- uv run obsidian-sync-agent -> exit 2.
+- .omo/evidence/obsidian-sync-agent -> exit 0.
+- uv run obsidian-sync-agent --help -> exit 0.
+- .omo/evidence/obsidian-sync-agent --help -> exit 0.
+- uv run obsidian-sync-agent sync --help -> exit 0.
+- .omo/evidence/obsidian-sync-agent sync --help -> exit 0.
+- uv run obsidian-sync-agent status --help -> exit 0.
+- .omo/evidence/obsidian-sync-agent status --help -> exit 0.
+- git diff --check main...HEAD -> exit 2. Failures are in evidence artifacts, including help-output tab indentation and blank line at EOF.
+
+contract comparison summary:
+- Config/env: Go config constants and Load behavior match the documented env vars and precedence for server, vault id, vault root, device id, device name, API token env-only, Obsidian key, and require-refresh config/CLI override. Source checked: src/obsidian_sync/sync_agent/config.py and internal/syncagent/config/doc.go.
+- Manifest: Go manifest keys match Python/docs: vault_id, device_id, last_sync_cursor, files[path].server_revision/content_hash/last_synced_at, conflicts[path].server_revision/server_content_hash/local_content_hash/server_deleted. Source checked: src/obsidian_sync/sync_agent/manifest.py and internal/syncagent/manifest/manifest.go.
+- Conflict: Go conflict filename/content and duplicate reuse broadly match Python/docs: {stem}.conflict.{device_id}.{YYYYMMDD-HHMMSS}.md, metadata lines, Local Version, Server Version, deleted placeholders, same device/server revision reuse. Source checked: src/obsidian_sync/sync_agent/conflict.py and internal/syncagent/conflict/conflict.go.
+- Ignore/scanner: Go rules match Python/docs for .md-only sync, hidden segments, .obsidian, .obsidian-sync-agent, .trash, .DS_Store/Thumbs.db by non-md exclusion, *.conflict.*.md, and *.sync-conflict*.md. Source checked: src/obsidian_sync/sync_agent/ignore.py, src/obsidian_sync/domain/sync_rules.py, internal/syncagent/rules/rules.go, internal/syncagent/scanner/scanner.go.
+- Engine/live QA: Task 8 live QA supports create, update, delete, conflict exit 1, resolved conflict, status, and dry-run no-push against a live FastAPI server. Source/evidence checked: internal/syncagent/engine/* and .omo/evidence/task-8-go-sync-cli-migration-live-sync.txt.
+
+deviations found:
+1. Root invocation exit-code contract differs.
+   - Python: `uv run obsidian-sync-agent` exits 2 with argparse error "the following arguments are required: command".
+   - Go: `.omo/evidence/obsidian-sync-agent` exits 0 and prints root help.
+   - No explicit user approval for this exit-code change was found in the plan, docs, or Task 1-9 evidence.
+
+2. Help flag surface differs from Python characterization tests.
+   - Python sync help includes documented double-dash flags: --vault-root, --vault-id, --server, --device-id, --verbose, --dry-run, --require-obsidian-refresh.
+   - Go sync/status help prints single-dash long names such as -vault-root and -dry-run.
+   - tests/sync_agent/test_contract.py explicitly characterizes the Python help with `--...` flag substrings. No explicit user approval for changing help output was found.
+
+3. Slop/programming blocker from direct pass.
+   - Loaded and applied remove-ai-slops and programming criteria.
+   - Direct scan found new Go helper signatures over the programming skill's >3-parameter smell threshold, including cmd/obsidian-sync-agent/main.go:119 parseCommand, internal/syncagent/conflict/conflict.go:89 findExisting, internal/syncagent/obsidian/obsidian.go:104 health, :114 reload, :145 doJSON, and internal/syncagent/client/client.go:151 sendWithBody.
+   - Later task reports justify some test-helper arity, but not all production helpers above. This is unresolved maintenance slop under the required criteria.
+
+4. Artifact/evidence gaps.
+   - Python sync-agent tests could not be executed normally in this worktree because tests/conftest.py imports require a missing .env/database URL before test collection.
+   - .omo/evidence/go-sync-cli-migration-task-3-gate-review.md remains a REJECT report for missing required Task 3 report coverage. .omo/evidence/task-3-review-and-qa-matrix.txt exists and was inspected, but no later approving Task 3 gate artifact was found.
+
+checked artifact paths:
+- README.md
+- docs/sync-agent.md
+- .omo/plans/go-sync-cli-migration.md
+- src/obsidian_sync/sync_agent/config.py
+- src/obsidian_sync/sync_agent/cli.py
+- src/obsidian_sync/sync_agent/manifest.py
+- src/obsidian_sync/sync_agent/conflict.py
+- src/obsidian_sync/sync_agent/ignore.py
+- src/obsidian_sync/sync_agent/scanner.py
+- src/obsidian_sync/sync_agent/engine.py
+- src/obsidian_sync/sync_agent/client.py
+- tests/sync_agent/test_contract.py
+- tests/sync_agent/test_config.py
+- tests/sync_agent/test_manifest.py
+- tests/sync_agent/test_conflict.py
+- tests/sync_agent/test_ignore.py
+- tests/sync_agent/test_scanner.py
+- tests/test_sync_agent_integration.py
+- cmd/obsidian-sync-agent/main.go
+- cmd/obsidian-sync-agent/main_test.go
+- internal/syncagent/config/doc.go
+- internal/syncagent/manifest/manifest.go
+- internal/syncagent/rules/rules.go
+- internal/syncagent/scanner/scanner.go
+- internal/syncagent/conflict/conflict.go
+- internal/syncagent/client/client.go
+- internal/syncagent/engine/engine.go
+- internal/syncagent/engine/pull.go
+- internal/syncagent/engine/push.go
+- internal/syncagent/obsidian/obsidian.go
+- .omo/evidence/task-1-go-sync-cli-migration-gate-review.md
+- .omo/evidence/task-3-review-and-qa-matrix.txt
+- .omo/evidence/go-sync-cli-migration-task-3-gate-review.md
+- .omo/evidence/task-4-review-and-qa-matrix.txt
+- .omo/evidence/go-sync-cli-migration-task-4-tracked-diff-gate-review.md
+- .omo/evidence/go-sync-cli-migration-task-5-gate-review.md
+- .omo/evidence/task-6-review-and-qa-matrix.txt
+- .omo/evidence/go-sync-cli-migration-task-6-gate-review.md
+- .omo/evidence/task-7-review-work.txt
+- .omo/evidence/go-sync-cli-migration-task-7-second-fix-gate-review.md
+- .omo/evidence/task-8-go-sync-cli-migration-live-sync.txt
+- .omo/evidence/task-8-go-sync-cli-migration-config-error.txt
+- .omo/evidence/task-8-go-sync-cli-migration-refresh-error.txt
+- .omo/evidence/task-8-review-and-qa-matrix.txt
+- .omo/evidence/go-sync-cli-migration-task-8-regate-review.md
+- .omo/evidence/task-9-go-sync-cli-migration-builds.txt
+- .omo/evidence/task-9-review-and-qa-matrix.txt
+- .omo/evidence/go-sync-cli-migration-task-9-regate-review.md
+
+blockers:
+- Unapproved root no-command exit-code change: Python exits 2, Go exits 0.
+- Unapproved help surface change from Python-characterized `--flag` help to Go `-flag` help output.
+- Unresolved programming/remove-ai-slops slop: production helper arity over the required threshold without report-backed justification.
+- Python sync-agent pytest target could not run due missing .env/database setup, leaving direct source/test inspection as the fallback.
+
+final:
+- F4 cannot pass until the exit-code/help deviations are either corrected or explicitly approved, and the unresolved slop/evidence gaps are addressed.

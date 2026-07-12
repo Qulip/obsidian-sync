@@ -1,0 +1,3 @@
+$ env -u OBSIDIAN_SYNC_AGENT_SERVER -u OBSIDIAN_SYNC_AGENT_VAULT_ID -u OBSIDIAN_SYNC_AGENT_VAULT_ROOT -u OBSIDIAN_SYNC_AGENT_DEVICE_ID -u OBSIDIAN_SYNC_AGENT_DEVICE_NAME -u OBSIDIAN_SYNC_AGENT_TOKEN -u OBSIDIAN_LOCAL_REST_API_KEY .omo/evidence/obsidian-sync-agent sync --vault-root /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.ziEEZ1yzN9
+configuration error: server base url is required (use --server, OBSIDIAN_SYNC_AGENT_SERVER, or config file server_base_url)
+exit_code=2

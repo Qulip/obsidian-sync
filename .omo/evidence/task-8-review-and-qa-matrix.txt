@@ -1,0 +1,48 @@
+Task 8 review and QA matrix
+
+Scope
+- Task 8 blocker fix only: cmd/obsidian-sync-agent/main.go handles flag.ErrHelp as successful subcommand help, and cmd/obsidian-sync-agent/main_test.go covers sync help, status help, and an unknown flag parse error.
+- Preserved existing Task 8 DTO/time parsing and live QA artifacts. No Task 9 docs or release work performed.
+- Forbidden files checked clean: git diff -- .omo/plans/go-sync-cli-migration.md .omo/start-work/ledger.jsonl produced no output.
+
+Programming skill quality checks
+- Go boundary types: no new untyped maps/interfaces or boundary DTO changes introduced; command help remains at the CLI flag boundary.
+- Error handling: parseCommand uses errors.Is(err, flag.ErrHelp) so wrapped help errors would still classify as help; other flag parse errors continue to return exitError.
+- Tests: TestRunCommand_returnsExpectedExit_whenParsingStopsAtCLIFlags covers sync --help, status --help, and sync --not-a-real-flag in one command-surface table.
+- Command exit behavior: runStatus and runSync return exitOK immediately for helpRequested before config loading; missing config and unknown flag remain exitError.
+- Size check: main.go measured 186 pure LOC; main_test.go measured 250 pure LOC after the focused tests.
+
+remove-ai-slops / overfit / slop checks
+- No fake success: help paths were verified through the built .omo/evidence/obsidian-sync-agent binary, not only through unit tests.
+- No overbroad abstractions: no new helper, framework, command layer, or config path was introduced.
+- No excessive helper parameter bloat introduced: no new helper function and no expanded parameter list.
+- No stale blocker left: both rejected help paths now have tests and binary transcripts with exit_code=0.
+- No temp debug artifacts: the only temporary missing-config vault directory was removed after the transcript; evidence files are under .omo/evidence/task-8-*.
+- No test removal: existing tests were preserved; only focused command parsing coverage was added.
+
+Manual QA artifacts and proof
+- .omo/evidence/task-8-sync-help-exit0.txt: invocation `.omo/evidence/obsidian-sync-agent sync --help`; proves sync usage prints and exits 0.
+- .omo/evidence/task-8-status-help-exit0.txt: invocation `.omo/evidence/obsidian-sync-agent status --help`; proves status usage prints and exits 0.
+- .omo/evidence/task-8-go-sync-cli-migration-config-error.txt: invocation with sync --vault-root and sync env vars unset; proves missing config still exits 2.
+- .omo/evidence/task-8-go-sync-cli-migration-live-sync.txt: preserved Task 8 live sync QA artifact for the existing migration work.
+- .omo/evidence/task-8-go-sync-cli-migration-refresh-error.txt: preserved Task 8 Obsidian refresh error QA artifact.
+- .omo/evidence/task-8-live-qa-blocker.txt: preserved prior Task 8 live QA blocker note.
+- .omo/evidence/task-8-required-verification.txt: exact command transcript for required tests, vet, and build.
+- .omo/evidence/obsidian-sync-agent: rebuilt CLI binary used by manual QA transcripts.
+
+Required verification exit codes
+- go test -count=1 ./cmd/obsidian-sync-agent: exit_code=0
+- go test -count=1 ./cmd/obsidian-sync-agent ./internal/syncagent/engine ./internal/syncagent/client: exit_code=0
+- go test -count=1 ./...: exit_code=0
+- go vet ./cmd/obsidian-sync-agent ./internal/syncagent/...: exit_code=0
+- go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent: exit_code=0
+- .omo/evidence/obsidian-sync-agent sync --help: exit_code=0
+- .omo/evidence/obsidian-sync-agent status --help: exit_code=0
+- missing config transcript: exit_code=2
+
+Adversarial classes covered for Task 8
+- Help flag is a non-error control path for sync.
+- Help flag is a non-error control path for status.
+- Unknown sync flag remains a parse error and exits 2.
+- Missing required config remains a configuration error and exits 2.
+- Existing conflict and Obsidian refresh nonzero exits remain covered by package tests and preserved Task 8 QA artifacts.

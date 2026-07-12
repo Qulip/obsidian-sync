@@ -1,0 +1,49 @@
+surface=terminal CLI direct shell
+$ .omo/evidence/obsidian-sync-agent
+the following arguments are required: command
+exit_code=2
+
+$ .omo/evidence/obsidian-sync-agent --help
+obsidian-sync-agent
+
+Usage:
+  obsidian-sync-agent --help
+  obsidian-sync-agent <command> [flags]
+
+Commands:
+  sync
+  status
+exit_code=0
+
+$ .omo/evidence/obsidian-sync-agent sync --help
+Usage of sync:
+  --vault-root string
+    	local vault directory
+  --vault-id string
+    	server vault id
+  --server string
+    	server base url
+  --device-id string
+    	override the device id
+  --verbose
+    	enable debug logging
+  --dry-run
+    	print planned actions without writing or pushing
+  --require-obsidian-refresh
+    	exit non-zero if the Obsidian refresh step fails
+exit_code=0
+
+$ .omo/evidence/obsidian-sync-agent status --help
+Usage of status:
+  --vault-root string
+    	local vault directory
+  --vault-id string
+    	server vault id
+  --server string
+    	server base url
+  --device-id string
+    	override the device id
+  --verbose
+    	enable debug logging
+exit_code=0
+

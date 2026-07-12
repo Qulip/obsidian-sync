@@ -1,0 +1,3 @@
+surface=terminal availability probe
+$ command -v tmux
+exit_code=1

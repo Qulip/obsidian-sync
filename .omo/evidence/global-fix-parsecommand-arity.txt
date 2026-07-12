@@ -1,0 +1,156 @@
+Task: Fix parseCommand explicit parameter count in cmd/obsidian-sync-agent/main.go.
+
+Changed files:
+- cmd/obsidian-sync-agent/main.go
+- .omo/evidence/global-fix-parsecommand-arity.txt
+
+Implementation:
+- Added commandIO typed grouping with stdout/stderr writers.
+- Updated runStatus and runSync to pass commandIO to parseCommand.
+- Updated parseCommand signature from 4 explicit parameters to 3:
+  parseCommand(spec commandSpec, args []string, stdio commandIO)
+- Preserved explicit subcommand help stream behavior: help goes to stdout, stderr is empty.
+- Preserved parse error stream behavior: flag parse errors go to stderr.
+
+Verification:
+
+1. Scenario: focused command package tests.
+   Invocation: go test -count=1 ./cmd/obsidian-sync-agent
+   Exit code: 0
+   Binary observable:
+   ok  	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent	10.825s
+   Captured artifact path: .omo/evidence/global-fix-parsecommand-arity.txt
+
+2. Scenario: full Go test suite.
+   Invocation: go test -count=1 ./...
+   Exit code: 0
+   Binary observable:
+   ok  	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent	11.104s
+   ?   	github.com/Qulip/obsidian-sync/internal/syncagent	[no test files]
+   ok  	github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile	1.286s
+   ok  	github.com/Qulip/obsidian-sync/internal/syncagent/client	2.096s
+   ok  	github.com/Qulip/obsidian-sync/internal/syncagent/config	1.700s
+   ok  	github.com/Qulip/obsidian-sync/internal/syncagent/conflict	2.742s
+   ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	2.491s
+   ok  	github.com/Qulip/obsidian-sync/internal/syncagent/manifest	3.489s
+   ok  	github.com/Qulip/obsidian-sync/internal/syncagent/obsidian	4.328s
+   ok  	github.com/Qulip/obsidian-sync/internal/syncagent/rules	3.066s
+   ok  	github.com/Qulip/obsidian-sync/internal/syncagent/scanner	3.878s
+   ?   	github.com/Qulip/obsidian-sync/internal/syncagent/vaultfs	[no test files]
+   Captured artifact path: .omo/evidence/global-fix-parsecommand-arity.txt
+
+3. Scenario: vet all Go packages.
+   Invocation: go vet ./...
+   Exit code: 0
+   Binary observable: no output.
+   Captured artifact path: .omo/evidence/global-fix-parsecommand-arity.txt
+
+4. Scenario: build fresh CLI binary.
+   Invocation: go build -o dist/obsidian-sync-agent/obsidian-sync-agent ./cmd/obsidian-sync-agent
+   Exit code: 0
+   Binary observable: dist/obsidian-sync-agent/obsidian-sync-agent exists.
+   Captured artifact path: .omo/evidence/global-fix-parsecommand-arity.txt
+
+5. Scenario: fresh binary subcommand help writes stdout and leaves stderr empty.
+   Invocation: dist/obsidian-sync-agent/obsidian-sync-agent sync --help
+   Binary exit code: 0
+   Command wrapper exit code: 0
+   Binary observable:
+   stdout_bytes=380
+   stderr_bytes=0
+   stdout_first=Usage of sync:
+   stderr_first=
+   stdout:
+   Usage of sync:
+     --vault-root string
+       	local vault directory
+     --vault-id string
+       	server vault id
+     --server string
+       	server base url
+     --device-id string
+       	override the device id
+     --verbose
+       	enable debug logging
+     --dry-run
+       	print planned actions without writing or pushing
+     --require-obsidian-refresh
+       	exit non-zero if the Obsidian refresh step fails
+   Captured artifact path: .omo/evidence/global-fix-parsecommand-arity.txt
+   Temporary stdout/stderr capture files:
+   /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.QBO9mA75DU/sync-help.stdout
+   /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.QBO9mA75DU/sync-help.stderr
+   Cleanup: removed /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.QBO9mA75DU
+
+6. Scenario: fresh binary parse error writes stderr and leaves stdout empty.
+   Invocation: dist/obsidian-sync-agent/obsidian-sync-agent sync --not-a-real-flag
+   Binary exit code: 2
+   Command wrapper exit code: 0
+   Binary observable:
+   stdout_bytes=0
+   stderr_bytes=428
+   stdout_first=
+   stderr_first=flag provided but not defined: -not-a-real-flag
+   stderr:
+   flag provided but not defined: -not-a-real-flag
+   Usage of sync:
+     --vault-root string
+       	local vault directory
+     --vault-id string
+       	server vault id
+     --server string
+       	server base url
+     --device-id string
+       	override the device id
+     --verbose
+       	enable debug logging
+     --dry-run
+       	print planned actions without writing or pushing
+     --require-obsidian-refresh
+       	exit non-zero if the Obsidian refresh step fails
+   Captured artifact path: .omo/evidence/global-fix-parsecommand-arity.txt
+   Temporary stdout/stderr capture files:
+   /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.b1fVGIHUlP/unknown-flag.stdout
+   /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.b1fVGIHUlP/unknown-flag.stderr
+   Cleanup: removed /var/folders/wk/l5883nbn0q12t09txd7zbswh0000gn/T/tmp.b1fVGIHUlP
+
+7. Scenario: production function arity scan for cmd/obsidian-sync-agent.
+   Invocation:
+   find cmd/obsidian-sync-agent -name '*.go' ! -name '*_test.go' -print0 | xargs -0 perl -ne 'if (/^\s*func\s+(?:\([^)]+\)\s*)?([A-Za-z_]\w*)\s*\(([^)]*)\)/) { $name=$1; $params=$2; $count=($params =~ /\S/) ? 1 + ($params =~ tr/,//) : 0; print "$ARGV:$.: $name params=$count\n"; $bad=1 if $count > 3; } if (eof) { close ARGV } END { exit($bad ? 1 : 0) }'
+   Exit code: 0
+   Binary observable:
+   cmd/obsidian-sync-agent/main.go:23: main params=0
+   cmd/obsidian-sync-agent/main.go:27: run params=3
+   cmd/obsidian-sync-agent/main.go:47: printHelp params=1
+   cmd/obsidian-sync-agent/main.go:79: runStatus params=3
+   cmd/obsidian-sync-agent/main.go:102: runSync params=3
+   cmd/obsidian-sync-agent/main.go:139: parseCommand params=3
+   cmd/obsidian-sync-agent/main.go:176: printCommandHelp params=2
+   cmd/obsidian-sync-agent/main.go:196: overrides params=1
+   cmd/obsidian-sync-agent/main.go:207: writeCommandError params=3
+   cmd/obsidian-sync-agent/main.go:212: printSummary params=2
+   cmd/obsidian-sync-agent/main.go:237: printStatus params=2
+   Captured artifact path: .omo/evidence/global-fix-parsecommand-arity.txt
+
+8. Scenario: whitespace check.
+   Invocation: git diff --check
+   Exit code: 0
+   Binary observable: no output.
+   Captured artifact path: .omo/evidence/global-fix-parsecommand-arity.txt
+
+Additional local checks:
+- gofmt -w cmd/obsidian-sync-agent/main.go: exit code 0.
+- Pure LOC measurement:
+  Invocation: awk '!/^[[:space:]]*$/ && !/^[[:space:]]*(\/\/|#|--)/' cmd/obsidian-sync-agent/main.go | wc -l
+  Exit code: 0
+  Output: 233
+
+Cleanup:
+- Removed temporary stdout/stderr capture directory for sync --help.
+- Removed temporary stdout/stderr capture directory for sync --not-a-real-flag.
+- Left dist/obsidian-sync-agent/obsidian-sync-agent in place because the requested build command writes that binary.
+- Did not touch symlink, docs, Makefile, build artifact policy files, plan, or ledger files.
+
+Risks:
+- The worktree had many pre-existing unrelated modified/deleted/untracked files. They were not reverted or cleaned.
+- The diff against HEAD includes pre-existing uncommitted CLI help behavior changes in cmd/obsidian-sync-agent/main.go; this task only added the commandIO grouping and updated parseCommand callers/signature in the shared dirty worktree.

@@ -1,0 +1,4 @@
+=== RUN   TestClientSyncConflict
+--- PASS: TestClientSyncConflict (0.01s)
+PASS
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/client	10.288s

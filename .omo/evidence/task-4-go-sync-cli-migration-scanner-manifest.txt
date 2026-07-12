@@ -1,0 +1,8 @@
+=== RUN   TestSave_writesManifestPathAndLeavesNoTempFiles
+--- PASS: TestSave_writesManifestPathAndLeavesNoTempFiles (0.00s)
+PASS
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/manifest	10.314s
+=== RUN   TestScanVault_hashesOnlySyncableMarkdownFiles
+--- PASS: TestScanVault_hashesOnlySyncableMarkdownFiles (0.01s)
+PASS
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/scanner	10.480s

@@ -1,0 +1,43 @@
+Task 3 audit receipt
+pwd=/Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+branch=work/go-sync-cli-migration
+go_version=go version go1.26.5 darwin/arm64
+
+changed_files_owned_scope:
+cmd/obsidian-sync-agent/main.go
+cmd/obsidian-sync-agent/main_test.go
+internal/syncagent/config/doc.go
+internal/syncagent/config/config_test.go
+.omo/evidence/task-3-red.txt
+.omo/evidence/task-3-go-sync-cli-migration-config.txt
+.omo/evidence/task-3-help.txt
+.omo/evidence/obsidian-sync-agent
+    .omo/evidence/task-3-audit.txt
+
+git_status_short:
+?? .omo/
+?? cmd/
+?? go.mod
+?? internal/
+?? tests/sync_agent/test_contract.py
+
+pure_loc:
+internal/syncagent/config/doc.go      219
+internal/syncagent/config/config_test.go      246
+cmd/obsidian-sync-agent/main.go      146
+cmd/obsidian-sync-agent/main_test.go       91
+
+debug_runtime_hypotheses:
+H1 stale build could make QA exercise old CLI; evidence: rebuilt .omo/evidence/obsidian-sync-agent after final code, then QA output includes new status URL and CLI values. status=refuted
+H2 CLI parsing could silently use env/file values instead of flags; evidence: httptest command test and manual QA both show vault cli-vault device cli-device server http://127.0.0.1:9 despite env/file alternatives. status=refuted
+H3 missing-config failure could be masked as network/success; evidence: env -i status against empty temp vault exits 2 and stderr names missing server base url. status=refuted
+
+adversarial_classes:
+malformed_input: covered missing config and missing required server/vault tests; malformed JSON returns ConfigError via stdlib JSON unmarshal.
+dirty_worktree: git status inspected; pre-existing untracked task 1/2/4/5/6 artifacts and tests/sync_agent/test_contract.py left untouched.
+stale_state: pwd and branch recorded in QA and this receipt.
+misleading_success_output: command exit codes captured explicitly in tests/build/QA outputs.
+flaky_tests: Go tests use t.TempDir, t.Setenv, httptest; no sleeps or wall-clock assertions.
+not_applicable: no DB/API schema, browser UI, concurrency, or destructive migrations in Task 3.
+
+cleanup_receipt: no debug journal, debugger sessions, or source instrumentation created; temp vaults were under system tmp; no source files outside owned scope intentionally edited.

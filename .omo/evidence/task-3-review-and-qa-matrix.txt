@@ -1,0 +1,194 @@
+Task 3 review and manual QA matrix
+worktree: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+branch inspected: work/go-sync-cli-migration
+scope: go-sync-cli-migration Task 3
+
+Code quality review: PASS, no blocking findings
+
+Reviewed files:
+- internal/syncagent/config/doc.go
+- internal/syncagent/config/config_test.go
+- cmd/obsidian-sync-agent/main.go
+- cmd/obsidian-sync-agent/main_test.go
+- .omo/evidence/task-3-audit.txt
+- .omo/evidence/task-3-go-sync-cli-migration-config.txt
+- .omo/evidence/task-3-help.txt
+- .omo/evidence/task-3-red.txt
+
+Line-reference review notes:
+- internal/syncagent/config/doc.go:86-125: Load resolves vault root, config file,
+  CLI/env/file precedence, required server/vault values, sanitized device id, env-only
+  API token, and require-refresh precedence in one bounded config boundary. PASS.
+- internal/syncagent/config/doc.go:186-199: missing config file is allowed, unreadable
+  or malformed JSON is converted to ConfigError. PASS.
+- internal/syncagent/config/doc.go:202-224: Obsidian defaults and require-refresh
+  config/override behavior are explicit and narrow. PASS.
+- cmd/obsidian-sync-agent/main.go:26-40: top-level command dispatch is simple,
+  explicit, and returns non-zero for unknown commands. PASS.
+- cmd/obsidian-sync-agent/main.go:63-88: status requires config then probes
+  server; sync does not claim success and returns the not-implemented failure. PASS.
+- cmd/obsidian-sync-agent/main.go:91-123: flag parsing is command-local and maps
+  only supported CLI overrides into config.CLIOverrides. PASS.
+- cmd/obsidian-sync-agent/main.go:125-155: status probe builds a URL with stdlib,
+  uses a bounded timeout, closes the response body, and includes no token in error
+  output. PASS.
+- internal/syncagent/config/config_test.go:11-257: tests cover file config, env
+  override, CLI override, token env-only behavior, required-value failures, vault-root
+  env behavior, and Obsidian defaults. PASS.
+- cmd/obsidian-sync-agent/main_test.go:14-78: tests cover missing server failure and
+  CLI precedence before the status network call through httptest. PASS.
+
+Programming review
+- Strict types: PASS. Public config types are concrete structs. The only any usage is
+  test fixture JSON maps and a private fmt-style error helper, not domain/public API.
+- Stdlib-first: PASS. Config loading, JSON parsing, flag parsing, URL construction,
+  HTTP probing, temp dirs, and tests use standard library packages only.
+- No unnecessary deps: PASS. Task 3 scoped code introduces no extra runtime dependency.
+- No secret leakage: PASS. APIToken is env-only at internal/syncagent/config/doc.go:121;
+  config file api_token is ignored by tests at internal/syncagent/config/config_test.go:56-123.
+  cmd/obsidian-sync-agent/main.go:143-148 sends the token as Authorization only when set,
+  and status errors include server/vault/device, not token.
+- No broad abstractions: PASS. One CLI commandOptions struct and one config boundary
+  struct set are justified by CLI/config parsing. No speculative interfaces/factories.
+- Error handling: PASS. Config errors are typed enough for errors.Is via
+  internal/syncagent/config/doc.go:27-39 and are wrapped/preserved at I/O/JSON boundaries.
+- File size: PASS. Prior evidence .omo/evidence/task-3-audit.txt:24-28 records pure
+  LOC under 250 for all Task 3 Go files.
+
+remove-ai-slops / overfit coverage
+- Hardcoded fake behavior: PASS. main_test.go uses httptest to observe the actual request
+  path/query. Manual QA uses a closed local port only to prove resolved CLI values reach
+  the real status URL before network failure.
+- Brittle tests: PASS. Tests assert contract-level substrings, exit codes, request path,
+  and query values rather than full formatted dumps or incidental ordering.
+- Mirrored implementation tests: PASS. Tests drive Load/run behavior and observable
+  CLI/network outcomes; they do not reimplement pickString, ConfigPath, or URL building.
+- Unnecessary abstraction: PASS. No single-use interface, factory layer, or generic
+  framework appears in scoped code.
+- Hidden behavior: PASS. Precedence and required-value behavior are explicit in
+  Load and covered by tests; sync not-implemented returns an explicit error.
+- Log-only success claims: PASS. status prints "status ok" only after probeStatus returns
+  nil at cmd/obsidian-sync-agent/main.go:72-76. sync returns "sync failed" and exit 2 at
+  cmd/obsidian-sync-agent/main.go:84-88.
+- Over-defensive code: PASS. Boundary checks are limited to config file I/O/JSON,
+  required CLI/config values, flag parse failures, URL/request construction, HTTP errors.
+- Dead/debug code: PASS. No debug prints, sleeps, commented-out code, or unused private
+  helpers found in scoped files.
+
+Manual QA matrix
+
+1. Help surface
+- Command: .omo/evidence/obsidian-sync-agent --help
+- Expected exit code: 0
+- Observed exit code: 0
+- Observed artifact/path: .omo/evidence/obsidian-sync-agent
+- Output summary: usage shows obsidian-sync-agent, --help, <command> [flags],
+  commands sync and status.
+- Result: PASS
+
+2. Happy CLI precedence probe
+- Setup: temp vault with .obsidian-sync-agent/config.json containing file server/vault/device;
+  env also sets OBSIDIAN_SYNC_AGENT_SERVER, OBSIDIAN_SYNC_AGENT_VAULT_ID, and
+  OBSIDIAN_SYNC_AGENT_DEVICE_ID to different values.
+- Command shape:
+  OBSIDIAN_SYNC_AGENT_SERVER=http://env.example OBSIDIAN_SYNC_AGENT_VAULT_ID=env-vault
+  OBSIDIAN_SYNC_AGENT_DEVICE_ID=env-device .omo/evidence/obsidian-sync-agent status
+  --vault-root <tmp> --server http://127.0.0.1:9 --vault-id cli-vault
+  --device-id 'cli device!'
+- Expected exit code: 2, because the closed local port should fail only after CLI
+  values win over env/file values.
+- Observed exit code: 2
+- Observed evidence: stderr included
+  "get status from http://127.0.0.1:9 for vault cli-vault device cli-device" and
+  URL path /api/v1/sync/vaults/cli-vault/status?device_id=cli-device.
+- Exact prior artifact path: .omo/evidence/task-3-go-sync-cli-migration-config.txt
+- Result: PASS
+
+3. Missing config / missing required values
+- Command: tmp=$(mktemp -d); env -i .omo/evidence/obsidian-sync-agent status --vault-root "$tmp"
+- Expected exit code: 2
+- Observed exit code: 2
+- Observed stderr: configuration error: server base url is required
+  (use --server, OBSIDIAN_SYNC_AGENT_SERVER, or config file server_base_url)
+- Exact prior artifact path: .omo/evidence/task-3-go-sync-cli-migration-config.txt
+- Result: PASS
+
+4. Malformed config failure
+- Setup: temp vault with .obsidian-sync-agent/config.json containing "{bad json".
+- Command: env -i .omo/evidence/obsidian-sync-agent status --vault-root <tmp>
+- Expected exit code: 2
+- Observed exit code: 2
+- Observed stderr: configuration error: could not read config file <tmp>/.obsidian-sync-agent/config.json:
+  invalid character 'b' looking for beginning of object key string
+- Exact artifact path: this notepad, .omo/evidence/task-3-review-and-qa-matrix.txt
+- Result: PASS
+
+Verification commands rerun
+- go test -count=1 ./internal/syncagent/config ./cmd/obsidian-sync-agent
+  Observed exit code: 0
+  Output: both packages ok.
+- go vet ./internal/syncagent/config ./cmd/obsidian-sync-agent
+  Observed exit code: 0
+- go build -o .omo/evidence/obsidian-sync-agent ./cmd/obsidian-sync-agent
+  Observed exit code: 0
+- .omo/evidence/obsidian-sync-agent --help
+  Observed exit code: 0
+- env -i .omo/evidence/obsidian-sync-agent status --vault-root <empty-temp-vault>
+  Observed exit code: 2
+- malformed config binary probe
+  Observed exit code: 2
+- CLI precedence binary probe
+  Observed exit code: 2 after using CLI server/vault/device in the status URL.
+
+stale_state evidence
+- Inspected current directory with pwd:
+  /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+  exit code 0.
+- Inspected current branch with git branch --show-current:
+  work/go-sync-cli-migration
+  exit code 0.
+- Rebuilt .omo/evidence/obsidian-sync-agent immediately before runtime probes.
+- Reran tests, vet, build, help, missing-config, malformed-config, and CLI precedence
+  probes in this turn.
+
+misleading_success_output evidence
+- status success path requires probeStatus nil before "status ok" is printed
+  at cmd/obsidian-sync-agent/main.go:72-76.
+- sync command returns "sync failed: sync engine is not implemented yet" and exit 2
+  at cmd/obsidian-sync-agent/main.go:84-88.
+- Manual QA recorded process exit codes explicitly; no PASS is based only on log text.
+
+Dirty worktree scope
+- Task 3 owned product files:
+  cmd/obsidian-sync-agent/main.go
+  cmd/obsidian-sync-agent/main_test.go
+  internal/syncagent/config/doc.go
+  internal/syncagent/config/config_test.go
+- Task 3 owned evidence files:
+  .omo/evidence/task-3-audit.txt
+  .omo/evidence/task-3-go-sync-cli-migration-config.txt
+  .omo/evidence/task-3-help.txt
+  .omo/evidence/task-3-red.txt
+  .omo/evidence/task-3-review-and-qa-matrix.txt
+  .omo/evidence/task-3-diff-scope.txt
+  .omo/evidence/obsidian-sync-agent
+- Other untracked task files are unrelated to this review scope and were not edited:
+  Task 1, Task 2, Task 4, Task 5, Task 6 evidence files; internal/syncagent/atomicfile,
+  client, conflict, manifest, obsidian, rules, scanner files; tests/sync_agent/test_contract.py.
+- go.mod is untracked in the worktree but is outside the requested Task 3 review scope.
+
+tracked diff / untracked-file evidence
+- git diff over the scoped Task 3 files is empty because the files are untracked.
+- git status --short --untracked-files=all lists the Task 3 product/evidence paths as
+  "??"; see .omo/evidence/task-3-diff-scope.txt.
+
+Cleanup receipt
+- No product code was edited during this evidence pass.
+- No task checkboxes were marked.
+- Runtime probe temp vaults were created under the system temp directory and removed
+  after each probe.
+- The requested build command refreshed .omo/evidence/obsidian-sync-agent.
+- No debugger sessions, debug instrumentation, local service processes, or extra repo
+  artifacts were left by this evidence pass beyond the two requested text files.
+
+Blocking findings remaining: none.

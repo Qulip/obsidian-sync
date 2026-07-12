@@ -1,0 +1,62 @@
+Task 3 diff scope / dirty worktree evidence
+worktree: /Users/ia03060_mac/workspace/qulip/obsidian-sync-go-cli-worktree
+branch: work/go-sync-cli-migration
+
+Task 3 owned files:
+- cmd/obsidian-sync-agent/main.go
+- cmd/obsidian-sync-agent/main_test.go
+- internal/syncagent/config/doc.go
+- internal/syncagent/config/config_test.go
+- .omo/evidence/task-3-audit.txt
+- .omo/evidence/task-3-go-sync-cli-migration-config.txt
+- .omo/evidence/task-3-help.txt
+- .omo/evidence/task-3-red.txt
+- .omo/evidence/task-3-review-and-qa-matrix.txt
+- .omo/evidence/task-3-diff-scope.txt
+- .omo/evidence/obsidian-sync-agent
+
+git diff evidence:
+- Command: git diff -- internal/syncagent/config/doc.go internal/syncagent/config/config_test.go cmd/obsidian-sync-agent/main.go cmd/obsidian-sync-agent/main_test.go .omo/evidence/task-3-audit.txt .omo/evidence/task-3-go-sync-cli-migration-config.txt .omo/evidence/task-3-help.txt .omo/evidence/task-3-red.txt --stat
+- Exit code: 0
+- Output: empty, because the scoped files are untracked.
+
+Relevant git status --short --untracked-files=all lines:
+?? .omo/evidence/go-sync-cli-migration-task-3-gate-review.md
+?? .omo/evidence/obsidian-sync-agent
+?? .omo/evidence/task-3-audit.txt
+?? .omo/evidence/task-3-diff-scope.txt
+?? .omo/evidence/task-3-go-sync-cli-migration-config.txt
+?? .omo/evidence/task-3-help.txt
+?? .omo/evidence/task-3-red.txt
+?? .omo/evidence/task-3-review-and-qa-matrix.txt
+?? cmd/obsidian-sync-agent/main.go
+?? cmd/obsidian-sync-agent/main_test.go
+?? internal/syncagent/config/config_test.go
+?? internal/syncagent/config/doc.go
+
+Unrelated untracked lines observed in same worktree:
+?? .omo/drafts/go-sync-cli-migration.md
+?? .omo/evidence/go-sync-cli-migration-task-4-gate-review.md
+?? .omo/evidence/go-sync-cli-migration-task-5-gate-review.md
+?? .omo/evidence/go-sync-cli-migration-task-6-gate-review.md
+?? .omo/evidence/task-1-*
+?? .omo/evidence/task-2-*
+?? .omo/evidence/task-4-*
+?? .omo/evidence/task-5-*
+?? .omo/evidence/task-6-*
+?? .omo/plans/go-sync-cli-migration.md
+?? .omo/start-work/ledger.jsonl
+?? go.mod
+?? internal/syncagent/atomicfile/*
+?? internal/syncagent/client/*
+?? internal/syncagent/conflict/*
+?? internal/syncagent/manifest/*
+?? internal/syncagent/obsidian/*
+?? internal/syncagent/rules/*
+?? internal/syncagent/scanner/*
+?? tests/sync_agent/test_contract.py
+
+Scope note:
+- The product/evidence paths listed under Task 3 owned files are the only files reviewed
+  for this evidence pass.
+- Other task files are dirty-worktree context only and were not edited.

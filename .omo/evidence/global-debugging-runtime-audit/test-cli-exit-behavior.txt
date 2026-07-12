@@ -1,0 +1,16 @@
+$ go test -count=1 ./cmd/obsidian-sync-agent -run "TestRunCommand|TestRunSync" -v
+=== RUN   TestRunCommand_returnsExpectedExit_whenParsingStopsAtCLIFlags
+=== RUN   TestRunCommand_returnsExpectedExit_whenParsingStopsAtCLIFlags/sync_help
+=== RUN   TestRunCommand_returnsExpectedExit_whenParsingStopsAtCLIFlags/status_help
+=== RUN   TestRunCommand_returnsExpectedExit_whenParsingStopsAtCLIFlags/unknown_sync_flag
+--- PASS: TestRunCommand_returnsExpectedExit_whenParsingStopsAtCLIFlags (0.00s)
+    --- PASS: TestRunCommand_returnsExpectedExit_whenParsingStopsAtCLIFlags/sync_help (0.00s)
+    --- PASS: TestRunCommand_returnsExpectedExit_whenParsingStopsAtCLIFlags/status_help (0.00s)
+    --- PASS: TestRunCommand_returnsExpectedExit_whenParsingStopsAtCLIFlags/unknown_sync_flag (0.00s)
+=== RUN   TestRunSync_returnsConflictExit_whenEngineReportsConflict
+--- PASS: TestRunSync_returnsConflictExit_whenEngineReportsConflict (0.01s)
+=== RUN   TestRunSync_returnsRefreshExit_whenRequiredObsidianRefreshFails
+--- PASS: TestRunSync_returnsRefreshExit_whenRequiredObsidianRefreshFails (0.00s)
+PASS
+ok  	github.com/Qulip/obsidian-sync/cmd/obsidian-sync-agent	0.834s
+exit_code=0

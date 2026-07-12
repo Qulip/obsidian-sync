@@ -1,0 +1,5 @@
+surface: terminal CLI
+invocation: git ls-files .omo/evidence/builds .omo/evidence/obsidian-sync-agent
+exit_code=0
+stdout_bytes=       0
+stderr_bytes=       0

@@ -1,0 +1,3 @@
+Command: go test -count=1 ./internal/syncagent/engine
+ok  	github.com/Qulip/obsidian-sync/internal/syncagent/engine	10.448s
+Exit code: 0

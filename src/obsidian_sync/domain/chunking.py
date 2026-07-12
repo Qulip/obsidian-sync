@@ -4,12 +4,10 @@ from dataclasses import dataclass
 from obsidian_sync.domain.frontmatter import strip_frontmatter
 
 MIN_CHUNK_TOKENS = 150
-TARGET_MIN_CHUNK_TOKENS = 600
-TARGET_MAX_CHUNK_TOKENS = 900
 MAX_CHUNK_TOKENS = 1200
 DEFAULT_OVERLAP_TOKENS = 100
 
-_HEADING_PATTERN = re.compile(r'^(#{1,3})\s+(.+?)\s*#*\s*$')
+_HEADING_PATTERN = re.compile(r'^(#{1,6})\s+(.+?)\s*#*\s*$')
 _TOKEN_PATTERN = re.compile(r'\w+|[^\w\s]', re.UNICODE)
 
 
@@ -120,7 +118,9 @@ def _merge_short_sections(sections: list[_Section], min_tokens: int) -> list[_Se
         elif estimate_token_count(pending.content) < min_tokens:
             pending = _Section(
                 content=f'{pending.content}\n\n{section.content}',
-                heading_path=pending.heading_path or section.heading_path,
+                heading_path=_merged_heading_path(
+                    pending.heading_path, section.heading_path
+                ),
             )
         else:
             merged.append(pending)
@@ -131,12 +131,40 @@ def _merge_short_sections(sections: list[_Section], min_tokens: int) -> list[_Se
             merged.append(
                 _Section(
                     content=f'{previous.content}\n\n{pending.content}',
-                    heading_path=previous.heading_path,
+                    heading_path=_merged_heading_path(
+                        previous.heading_path, pending.heading_path
+                    ),
                 )
             )
         else:
             merged.append(pending)
     return merged
+
+
+def _merged_heading_path(
+    first: tuple[str, ...],
+    second: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Pick a heading path for two sections being merged into one chunk.
+
+    When both sections have a heading path, keep their common prefix so the
+    merged chunk isn't attributed to a heading it only partially belongs to.
+    If there is no common prefix, fall back to the first section's path.
+    Either way, the discarded heading text is not lost: it still appears in
+    the merged content as the original `#### Heading` markdown line, so
+    downstream consumers of `chunk.content` retain it even when it drops out
+    of `chunk.heading_path`.
+    """
+    if not first:
+        return second
+    if not second:
+        return first
+    common: list[str] = []
+    for left, right in zip(first, second, strict=False):
+        if left != right:
+            break
+        common.append(left)
+    return tuple(common) if common else first
 
 
 def _split_large_section(
@@ -148,7 +176,7 @@ def _split_large_section(
     if estimate_token_count(content) <= max_tokens:
         return [content]
 
-    paragraphs = re.split(r'\n\s*\n', content)
+    paragraphs = _bound_paragraphs(re.split(r'\n\s*\n', content), max_tokens)
     chunks: list[str] = []
     current: list[str] = []
     for paragraph in paragraphs:
@@ -165,6 +193,83 @@ def _split_large_section(
     return [chunk for chunk in chunks if chunk]
 
 
+def _bound_paragraphs(paragraphs: list[str], max_tokens: int) -> list[str]:
+    """Ensure no single paragraph exceeds max_tokens on its own.
+
+    A paragraph that is still too large is first split on line breaks; a
+    single unbroken line that alone exceeds max_tokens is, as a last
+    resort, sliced by character count. Markdown structure (e.g. an open
+    code fence) may be broken by a mid-line/paragraph cut; that tradeoff is
+    accepted here to guarantee a hard token cap on every chunk.
+    """
+    bounded: list[str] = []
+    for paragraph in paragraphs:
+        if estimate_token_count(paragraph) <= max_tokens:
+            bounded.append(paragraph)
+        else:
+            bounded.extend(_split_paragraph_by_lines(paragraph, max_tokens))
+    return bounded
+
+
+def _split_paragraph_by_lines(paragraph: str, max_tokens: int) -> list[str]:
+    lines = paragraph.split('\n')
+    groups: list[str] = []
+    current: list[str] = []
+    current_tokens = 0
+    for line in lines:
+        line_tokens = estimate_token_count(line)
+        if line_tokens > max_tokens:
+            if current:
+                groups.append('\n'.join(current))
+                current = []
+                current_tokens = 0
+            groups.extend(_slice_line_by_chars(line, max_tokens))
+            continue
+        if current and current_tokens + line_tokens > max_tokens:
+            groups.append('\n'.join(current))
+            current = []
+            current_tokens = 0
+        current.append(line)
+        current_tokens += line_tokens
+    if current:
+        groups.append('\n'.join(current))
+    return groups
+
+
+def _slice_line_by_chars(line: str, max_tokens: int) -> list[str]:
+    pieces: list[str] = []
+    remaining = line
+    while remaining:
+        piece = _take_prefix_within_tokens(remaining, max_tokens)
+        pieces.append(piece)
+        remaining = remaining[len(piece) :]
+    return pieces
+
+
+def _take_prefix_within_tokens(text: str, max_tokens: int) -> str:
+    low, high, best = 1, len(text), 1
+    while low <= high:
+        mid = (low + high) // 2
+        if estimate_token_count(text[:mid]) <= max_tokens:
+            best = mid
+            low = mid + 1
+        else:
+            high = mid - 1
+    return text[:best]
+
+
+def _take_suffix_within_tokens(text: str, max_tokens: int) -> str:
+    low, high, best = 1, len(text), 1
+    while low <= high:
+        mid = (low + high) // 2
+        if estimate_token_count(text[-mid:]) <= max_tokens:
+            best = mid
+            low = mid + 1
+        else:
+            high = mid - 1
+    return text[-best:]
+
+
 def _overlap_paragraphs(chunk: str, overlap_tokens: int) -> list[str]:
     if overlap_tokens <= 0:
         return []
@@ -173,7 +278,19 @@ def _overlap_paragraphs(chunk: str, overlap_tokens: int) -> list[str]:
     total = 0
     for paragraph in reversed(paragraphs):
         token_count = estimate_token_count(paragraph)
-        if overlap and total + token_count > overlap_tokens:
+        if total + token_count > overlap_tokens:
+            # A single paragraph can itself exceed the overlap budget (this
+            # happens once paragraphs have been bounded to max_tokens by
+            # `_bound_paragraphs`, which may still be far larger than
+            # overlap_tokens). Take only a bounded suffix of it instead of
+            # carrying the whole paragraph forward, otherwise the next
+            # chunk could grow by a full paragraph's worth of tokens beyond
+            # max_tokens.
+            remaining_budget = overlap_tokens - total
+            if remaining_budget > 0:
+                overlap.insert(
+                    0, _take_suffix_within_tokens(paragraph, remaining_budget)
+                )
             break
         overlap.insert(0, paragraph)
         total += token_count

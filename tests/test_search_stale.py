@@ -93,6 +93,7 @@ async def _search(session: AsyncSession) -> list[str]:
         query_embedding=_embedding(),
         filters=SearchFilters(),
         top_k=10,
+        embedding_model=get_settings().embedding_model,
     )
     return [record.source_path for record in records]
 

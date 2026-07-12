@@ -81,6 +81,7 @@ class KnowledgeSearchService:
                 query_embedding=query_embedding,
                 filters=normalized.filters,
                 top_k=normalized.top_k,
+                embedding_model=self.settings.embedding_model,
             )
             matched_by = {record.chunk_id: 'vector' for record in candidates}
         candidate_count = len(candidates)
@@ -120,6 +121,9 @@ class KnowledgeSearchService:
         failed_vectorizing_jobs = await self.repository.count_failed_reindex(
             normalized.vault_id
         )
+        model_stale_jobs = await self.repository.count_model_stale_files(
+            normalized.vault_id, self.settings.embedding_model
+        )
         latency_ms = int((perf_counter() - started) * 1000)
         filter_payload = _filters_payload(normalized, effective_min_score)
         await self.repository.log_search(
@@ -147,13 +151,19 @@ class KnowledgeSearchService:
             answer_context=_build_answer_context(
                 pending_vectorizing_jobs,
                 failed_vectorizing_jobs,
+                model_stale_jobs,
                 low_confidence=low_confidence,
                 no_candidates=no_candidates,
                 has_results=bool(records),
             ),
             pending_vectorizing_jobs=pending_vectorizing_jobs,
             failed_vectorizing_jobs=failed_vectorizing_jobs,
-            index_fresh=pending_vectorizing_jobs == 0 and failed_vectorizing_jobs == 0,
+            model_stale_jobs=model_stale_jobs,
+            index_fresh=(
+                pending_vectorizing_jobs == 0
+                and failed_vectorizing_jobs == 0
+                and model_stale_jobs == 0
+            ),
             min_score=reported_min_score,
             low_confidence=low_confidence,
             no_candidates=no_candidates,
@@ -207,6 +217,7 @@ class KnowledgeSearchService:
             query_embedding=query_embedding,
             filters=normalized.filters,
             top_k=normalized.top_k,
+            embedding_model=self.settings.embedding_model,
             candidate_limit=candidate_limit,
         )
         lexical_records = await self.repository.search_chunks_lexical(
@@ -215,6 +226,7 @@ class KnowledgeSearchService:
             query_text=normalized.query,
             filters=normalized.filters,
             candidate_limit=candidate_limit,
+            embedding_model=self.settings.embedding_model,
         )
         records_by_id = {
             record.chunk_id: record
@@ -364,6 +376,7 @@ def _normalize_or_raise(
 def _build_answer_context(
     pending_vectorizing_jobs: int,
     failed_vectorizing_jobs: int,
+    model_stale_jobs: int,
     *,
     low_confidence: bool,
     no_candidates: bool,
@@ -371,17 +384,27 @@ def _build_answer_context(
 ) -> AnswerContext:
     if not has_results:
         if no_candidates:
+            model_stale_notice = (
+                (
+                    f' {model_stale_jobs} file(s) were indexed with a '
+                    'different embedding model and are excluded; run a '
+                    'full reindex (reindex_vault(mode=full)) if this note '
+                    'is expected to match.'
+                )
+                if model_stale_jobs > 0
+                else ''
+            )
             return AnswerContext(
                 summary=(
                     'No supporting evidence was found for this query -- no '
-                    'vector or lexical candidate matched it.'
+                    'vector or lexical candidate matched it.' + model_stale_notice
                 ),
                 recommended_action=(
                     'Do not cite these results -- there is no matching chunk '
                     'for this query. Try rephrasing the query or adjusting '
                     'filters, or check pending_vectorizing_jobs / '
-                    'failed_vectorizing_jobs in case relevant notes have not '
-                    'been indexed yet.'
+                    'failed_vectorizing_jobs / model_stale_jobs in case '
+                    'relevant notes have not been indexed yet.'
                 ),
             )
         return AnswerContext(
@@ -396,7 +419,11 @@ def _build_answer_context(
                 'or reporting that no matching notes were found.'
             ),
         )
-    if pending_vectorizing_jobs == 0 and failed_vectorizing_jobs == 0:
+    if (
+        pending_vectorizing_jobs == 0
+        and failed_vectorizing_jobs == 0
+        and model_stale_jobs == 0
+    ):
         return AnswerContext(
             summary='Search returned matching chunks based on query and metadata.',
             recommended_action=(
@@ -415,6 +442,13 @@ def _build_answer_context(
             f'{failed_vectorizing_jobs} file(s) failed indexing and are '
             'missing from search results; check index failure logs.'
         )
+    if model_stale_jobs > 0:
+        notices.append(
+            f'{model_stale_jobs} file(s) were indexed with a different '
+            'embedding model and are excluded; run a full reindex '
+            '(reindex_vault(mode=full)) to restore them.'
+        )
+    reindex_mode = 'full' if model_stale_jobs > 0 else 'changed_only'
     return AnswerContext(
         summary=(
             'Search returned matching chunks based on query and metadata. '
@@ -422,9 +456,10 @@ def _build_answer_context(
         ),
         recommended_action=(
             'Review source_path, heading_path, and agent_hint from the top '
-            'results first. Some files are still pending or failed '
-            'vectorization -- run reindex_vault(mode=changed_only) and '
-            'search again for complete results.'
+            'results first. Some files are still pending, failed, or '
+            f'indexed with a stale embedding model -- run '
+            f'reindex_vault(mode={reindex_mode}) and search again for '
+            'complete results.'
         ),
     )
 

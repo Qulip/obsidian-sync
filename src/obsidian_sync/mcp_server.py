@@ -112,13 +112,19 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         Reciprocal Rank Fusion).
 
         The response includes `pending_vectorizing_jobs`,
-        `failed_vectorizing_jobs`, and `index_fresh`. `index_fresh` is
-        False when either count is greater than 0: `pending_vectorizing_jobs`
-        means some files have not finished indexing yet, and
-        `failed_vectorizing_jobs` means some files failed indexing and are
-        missing from results entirely -- in both cases call
-        `reindex_vault(mode=changed_only)` and search again once it
-        completes. `min_score` (0.0-1.0) filters out chunks
+        `failed_vectorizing_jobs`, `model_stale_jobs`, and `index_fresh`.
+        `index_fresh` is False when any count is greater than 0:
+        `pending_vectorizing_jobs` means some files have not finished
+        indexing yet, `failed_vectorizing_jobs` means some files failed
+        indexing and are missing from results entirely, and
+        `model_stale_jobs` means some files were indexed with a previous
+        embedding model configuration and are excluded from results to
+        avoid comparing embeddings from different models in the same
+        search. For pending/failed, call `reindex_vault(mode=changed_only)`
+        and search again once it completes; after an embedding model
+        change, results are incomplete until a full reindex finishes, so
+        call `reindex_vault(mode=full)` instead. `min_score` (0.0-1.0)
+        filters out chunks
         below that cosine-similarity threshold; when the filter removes all
         candidates, `low_confidence=True` and `results` is empty. When there
         were no vector or lexical candidates at all (nothing to filter),

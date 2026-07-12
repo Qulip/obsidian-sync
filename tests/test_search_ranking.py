@@ -170,6 +170,7 @@ async def _search_chunks(
         query_embedding=_query_vector(),
         filters=filters or SearchFilters(),
         top_k=top_k,
+        embedding_model=get_settings().embedding_model,
     )
 
 

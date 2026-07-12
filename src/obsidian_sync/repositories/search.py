@@ -7,7 +7,7 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obsidian_sync.db.base import DB_SCHEMA
-from obsidian_sync.db.models import SearchLog, Vault, VaultFile
+from obsidian_sync.db.models import KnowledgeChunk, SearchLog, Vault, VaultFile
 from obsidian_sync.domain.search import SearchFilters
 
 
@@ -66,10 +66,14 @@ class SearchRepository:
         query_embedding: list[float],
         filters: SearchFilters,
         top_k: int,
+        embedding_model: str,
         candidate_limit: int | None = None,
     ) -> list[SearchResultRecord]:
         where_parts, params = _base_where_and_params(
-            vault_id=vault_id, query_embedding=query_embedding, filters=filters
+            vault_id=vault_id,
+            query_embedding=query_embedding,
+            filters=filters,
+            embedding_model=embedding_model,
         )
         params['limit'] = candidate_limit if candidate_limit is not None else top_k
 
@@ -97,9 +101,13 @@ class SearchRepository:
         query_text: str,
         filters: SearchFilters,
         candidate_limit: int,
+        embedding_model: str,
     ) -> list[SearchResultRecord]:
         where_parts, params = _base_where_and_params(
-            vault_id=vault_id, query_embedding=query_embedding, filters=filters
+            vault_id=vault_id,
+            query_embedding=query_embedding,
+            filters=filters,
+            embedding_model=embedding_model,
         )
         where_parts.append(
             "kc.content_tsv @@ websearch_to_tsquery('simple', :query_text)"
@@ -159,6 +167,45 @@ class SearchRepository:
                 VaultFile.index_status == 'failed',
                 VaultFile.vectorize.is_(True),
                 VaultFile.deleted.is_(False),
+            )
+        )
+        return int(result.scalar_one())
+
+    async def count_model_stale_files(
+        self, vault_id: str, embedding_model: str
+    ) -> int:
+        """Count indexed files whose current chunks used a different model.
+
+        A file is "model stale" when it is indexed (index_status='indexed',
+        deleted=false, vectorize=true) but the knowledge_chunks row matching
+        its current content_hash was embedded with a model other than
+        `embedding_model` -- e.g. right after an embedding model
+        configuration change and before a full reindex has completed. Those
+        chunks are excluded from search results by _base_where_and_params'
+        `kc.embedding_model = :embedding_model` filter, so this count
+        mirrors count_pending_reindex/count_failed_reindex to keep search
+        freshness reporting consistent.
+        """
+        stale_chunk_exists = (
+            select(KnowledgeChunk.id)
+            .where(
+                KnowledgeChunk.vault_id == VaultFile.vault_id,
+                KnowledgeChunk.source_path == VaultFile.source_path,
+                KnowledgeChunk.content_hash == VaultFile.content_hash,
+                KnowledgeChunk.embedding_model != embedding_model,
+            )
+            .correlate(VaultFile)
+            .exists()
+        )
+        result = await self.session.execute(
+            select(func.count(func.distinct(VaultFile.id)))
+            .select_from(VaultFile)
+            .where(
+                VaultFile.vault_id == vault_id,
+                VaultFile.index_status == 'indexed',
+                VaultFile.vectorize.is_(True),
+                VaultFile.deleted.is_(False),
+                stale_chunk_exists,
             )
         )
         return int(result.scalar_one())
@@ -262,17 +309,23 @@ _SELECT_COLUMNS = """
 
 
 def _base_where_and_params(
-    *, vault_id: str, query_embedding: list[float], filters: SearchFilters
+    *,
+    vault_id: str,
+    query_embedding: list[float],
+    filters: SearchFilters,
+    embedding_model: str,
 ) -> tuple[list[str], dict[str, Any]]:
     where_parts = [
         'kc.vault_id = :vault_id',
         'kc.embedding IS NOT NULL',
+        'kc.embedding_model = :embedding_model',
         'vf.deleted = false',
         "vf.index_status = 'indexed'",
     ]
     params: dict[str, Any] = {
         'vault_id': vault_id,
         'embedding': _vector_literal(query_embedding),
+        'embedding_model': embedding_model,
     }
     if filters.status:
         where_parts.append('kc.status = ANY(:status)')

@@ -66,6 +66,7 @@ class KnowledgeSearchResponse(BaseModel):
     index_fresh: bool = True
     min_score: float | None = None
     low_confidence: bool = False
+    no_candidates: bool = False
     reranked: bool = False
 
 

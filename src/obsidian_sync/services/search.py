@@ -92,6 +92,7 @@ class KnowledgeSearchService:
             records = [
                 record for record in records if record.score >= effective_min_score
             ]
+        no_candidates = candidate_count == 0
         low_confidence = candidate_count > 0 and len(records) == 0
         reranked = False
         if self.settings.search_rerank_enabled and self.settings.search_rerank_model:
@@ -135,12 +136,15 @@ class KnowledgeSearchService:
                 pending_vectorizing_jobs,
                 failed_vectorizing_jobs,
                 low_confidence=low_confidence,
+                no_candidates=no_candidates,
+                has_results=bool(records),
             ),
             pending_vectorizing_jobs=pending_vectorizing_jobs,
             failed_vectorizing_jobs=failed_vectorizing_jobs,
             index_fresh=pending_vectorizing_jobs == 0 and failed_vectorizing_jobs == 0,
             min_score=reported_min_score,
             low_confidence=low_confidence,
+            no_candidates=no_candidates,
             reranked=reranked,
             results=[
                 KnowledgeSearchResult(
@@ -340,12 +344,29 @@ def _build_answer_context(
     failed_vectorizing_jobs: int,
     *,
     low_confidence: bool,
+    no_candidates: bool,
+    has_results: bool,
 ) -> AnswerContext:
-    if low_confidence:
+    if not has_results:
+        if no_candidates:
+            return AnswerContext(
+                summary=(
+                    'No supporting evidence was found for this query -- no '
+                    'vector or lexical candidate matched it.'
+                ),
+                recommended_action=(
+                    'Do not cite these results -- there is no matching chunk '
+                    'for this query. Try rephrasing the query or adjusting '
+                    'filters, or check pending_vectorizing_jobs / '
+                    'failed_vectorizing_jobs in case relevant notes have not '
+                    'been indexed yet.'
+                ),
+            )
         return AnswerContext(
             summary=(
-                'No results met the minimum relevance threshold; treat as no '
-                'supporting evidence.'
+                'No supporting evidence was found for this query -- '
+                'candidates existed but none met the minimum relevance '
+                'threshold.'
             ),
             recommended_action=(
                 'Do not cite these results -- no chunk was relevant enough to '

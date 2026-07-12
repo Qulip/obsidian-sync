@@ -118,6 +118,7 @@ async def test_search_returns_all_results_when_threshold_disabled(
 
     assert len(response.results) == 1
     assert response.low_confidence is False
+    assert response.no_candidates is False
     assert response.min_score is None
 
 
@@ -145,6 +146,7 @@ async def test_search_reports_low_confidence_when_min_score_filters_all(
 
     assert response.results == []
     assert response.low_confidence is True
+    assert response.no_candidates is False
     assert response.min_score == 0.99
     assert 'no supporting evidence' in response.answer_context.summary.lower()
 

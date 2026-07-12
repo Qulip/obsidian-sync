@@ -120,7 +120,12 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         `reindex_vault(mode=changed_only)` and search again once it
         completes. `min_score` (0.0-1.0) filters out chunks
         below that cosine-similarity threshold; when the filter removes all
-        candidates, `low_confidence=True` and `results` is empty.
+        candidates, `low_confidence=True` and `results` is empty. When there
+        were no vector or lexical candidates at all (nothing to filter),
+        `no_candidates=True` instead and `results` is also empty. In both
+        cases treat an empty `results` as no supporting evidence for the
+        query -- never assume a match exists just because `results` is
+        empty without checking why.
 
         The response includes `request_id` -- pass it to
         `submit_search_feedback` afterward to record which result (if any)

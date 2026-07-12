@@ -20,11 +20,32 @@ Use four-space indentation, single quotes, and an 88-character line length; thes
 
 ## Testing Guidelines
 
-The project uses pytest with `testpaths = ["tests"]`. Name new test files `test_<module>.py` and place focused unit tests under the matching area, such as `tests/sync_agent/` for local agent behavior and top-level `tests/test_<feature>.py` for API/service flows. Before submitting changes, run `uv run ruff check .`, `uv run mypy`, and the relevant pytest target. For DB/API changes, run `uv run pytest` with local PostgreSQL available because API and integration tests create and migrate a dedicated `obsidian_sync_test` database.
+The project uses pytest with `testpaths = ["tests"]`. Name new test files `test_<module>.py` and place focused unit tests under the matching area, such as `tests/sync_agent/` for local agent behavior and top-level `tests/test_<feature>.py` for API/service flows. Before submitting changes, run the full verification gate:
+
+```
+uv run ruff check . && uv run mypy && uv run pytest -q
+```
+
+API and integration tests need local PostgreSQL with the pgvector extension; they create and migrate a dedicated `obsidian_sync_test` database. Ollama is stubbed in tests, so no other external service is required.
+
+### Local Test Database
+
+Put the local database URL in `.env` (gitignored; see `.env.example`) as `OBSIDIAN_POSTGRESQL_URL=...`. `tests/conftest.py` reads it automatically — never inline credentials in shell commands. If no local PostgreSQL is running, start a disposable one:
+
+```
+docker run -d --rm --name obsidian-sync-test-pg -p 5432:5432 \
+  -e POSTGRES_PASSWORD=testpw pgvector/pgvector:pg17
+```
 
 ## Commit & Pull Request Guidelines
 
 The current history uses concise scoped messages such as `init: 초기 구현`. Keep commits short and imperative, preferably `scope: summary` (`api: add vault lookup`, `db: add migration`). Pull requests should include a brief purpose statement, key implementation notes, verification commands run, linked issues if applicable, and sample requests or responses for API changes.
+
+## Agent Workflow
+
+- Delegate implementation, analysis, and test-writing work to subagents using `model: sonnet`; the main agent orchestrates, reviews results, and makes judgment calls.
+- Run the verification gate (`uv run ruff check . && uv run mypy && uv run pytest -q`) before every commit and before reporting any task as complete. Report actual command output, not expectations.
+- For multi-phase work (e.g. P1/P2 improvement plans), checkpoint progress after each phase — commit completed phases individually and record remaining-phase status in the relevant `docs/` file — so an interrupted session can resume with full context.
 
 ## Security & Configuration Tips
 

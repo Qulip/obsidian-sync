@@ -127,6 +127,14 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         query -- never assume a match exists just because `results` is
         empty without checking why.
 
+        Each result's `score` is always cosine similarity, but in hybrid
+        mode the `results` order is RRF-based, not a sort of `score` -- a
+        higher-ranked result can carry a lower `score` than the one after
+        it. `matched_by` ('vector', 'lexical', or 'both') tells you which
+        leg found each result; `min_score` is only enforced against
+        'vector'-only results, since a result also caught by the lexical
+        (keyword) leg is exempt from the cosine threshold.
+
         The response includes `request_id` -- pass it to
         `submit_search_feedback` afterward to record which result (if any)
         was actually useful.

@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import datetime
 from time import perf_counter
 from typing import Any
@@ -71,7 +72,7 @@ class KnowledgeSearchService:
 
         query_embedding = await self.ollama_client.embed(normalized.query)
         if self.settings.search_hybrid_enabled:
-            candidates = await self._hybrid_search_chunks(
+            candidates, matched_by = await self._hybrid_search_chunks(
                 normalized=normalized, query_embedding=query_embedding
             )
         else:
@@ -81,6 +82,7 @@ class KnowledgeSearchService:
                 filters=normalized.filters,
                 top_k=normalized.top_k,
             )
+            matched_by = {record.chunk_id: 'vector' for record in candidates}
         candidate_count = len(candidates)
         effective_min_score = (
             normalized.min_score
@@ -89,8 +91,18 @@ class KnowledgeSearchService:
         )
         records = candidates
         if effective_min_score > 0.0:
+            # The cosine threshold only makes sense for candidates found
+            # purely by vector similarity. A candidate with a lexical match
+            # ('lexical' or 'both') can have a low cosine score for reasons
+            # unrelated to relevance (e.g. an exact function name or error
+            # message match whose surrounding text is semantically distant
+            # from the query embedding) -- filtering those out on cosine
+            # alone would silently discard the strongest keyword matches.
             records = [
-                record for record in records if record.score >= effective_min_score
+                record
+                for record in records
+                if matched_by[record.chunk_id] != 'vector'
+                or record.score >= effective_min_score
             ]
         no_candidates = candidate_count == 0
         low_confidence = candidate_count > 0 and len(records) == 0
@@ -150,6 +162,7 @@ class KnowledgeSearchService:
                 KnowledgeSearchResult(
                     rank=index + 1,
                     score=record.score,
+                    matched_by=matched_by[record.chunk_id],
                     source_path=record.source_path,
                     title=record.title,
                     heading_path=record.heading_path or [],
@@ -174,7 +187,7 @@ class KnowledgeSearchService:
         *,
         normalized: NormalizedSearchQuery,
         query_embedding: list[float],
-    ) -> list[SearchResultRecord]:
+    ) -> tuple[list[SearchResultRecord], dict[int, str]]:
         """Merge vector and lexical candidates via Reciprocal Rank Fusion.
 
         Each leg is queried sequentially (a single AsyncSession cannot run
@@ -182,6 +195,11 @@ class KnowledgeSearchService:
         then merged by chunk id using RRF. The returned score on each record
         remains cosine similarity, not the RRF value -- RRF only decides
         ordering here.
+
+        Also returns a chunk_id -> matched_by map ('vector', 'lexical', or
+        'both') recording which leg(s) surfaced each candidate, so callers
+        can tell apart a chunk that only ranked well semantically from one
+        that was pulled in by an exact keyword match.
         """
         candidate_limit = self.settings.search_candidate_limit
         vector_records = await self.repository.search_chunks(
@@ -202,13 +220,17 @@ class KnowledgeSearchService:
             record.chunk_id: record
             for record in (*lexical_records, *vector_records)
         }
+        matched_by = _build_matched_by(
+            vector_ids=(record.chunk_id for record in vector_records),
+            lexical_ids=(record.chunk_id for record in lexical_records),
+        )
         merged_ids = reciprocal_rank_fusion(
             (
                 [record.chunk_id for record in vector_records],
                 [record.chunk_id for record in lexical_records],
             )
         )
-        return [records_by_id[chunk_id] for chunk_id in merged_ids]
+        return [records_by_id[chunk_id] for chunk_id in merged_ids], matched_by
 
     async def _maybe_rerank(
         self, *, query: str, records: list[SearchResultRecord]
@@ -405,6 +427,24 @@ def _build_answer_context(
             'search again for complete results.'
         ),
     )
+
+
+def _build_matched_by(
+    *, vector_ids: Iterable[int], lexical_ids: Iterable[int]
+) -> dict[int, str]:
+    vector_id_set = set(vector_ids)
+    lexical_id_set = set(lexical_ids)
+    matched_by: dict[int, str] = {}
+    for chunk_id in vector_id_set | lexical_id_set:
+        in_vector = chunk_id in vector_id_set
+        in_lexical = chunk_id in lexical_id_set
+        if in_vector and in_lexical:
+            matched_by[chunk_id] = 'both'
+        elif in_lexical:
+            matched_by[chunk_id] = 'lexical'
+        else:
+            matched_by[chunk_id] = 'vector'
+    return matched_by
 
 
 def _filters_payload(

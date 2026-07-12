@@ -125,6 +125,17 @@ async def test_search_returns_all_results_when_threshold_disabled(
 async def test_search_reports_low_confidence_when_min_score_filters_all(
     db_session: AsyncSession,
 ) -> None:
+    """Pure vector-only low-confidence: min_score must still filter a
+    candidate that has no lexical match.
+
+    Settings default to search_hybrid_enabled=True, so the query text here
+    is deliberately disjoint from the seeded title/content ('Threshold' /
+    'Threshold content body.') -- otherwise the lexical leg would also
+    surface this chunk, exempting it from the cosine threshold under the
+    matched_by policy and defeating the point of this test. The stubbed
+    OllamaClient.embed ignores the query text, so this has no effect on the
+    embedding used.
+    """
     vault_pk = await _seed_vault(db_session)
     await _seed_indexed_file(
         db_session, vault_pk=vault_pk, embedding=_orthogonal_embedding()
@@ -133,7 +144,7 @@ async def test_search_reports_low_confidence_when_min_score_filters_all(
     service = await _search(db_session)
     response = await service.search(
         vault_id=VAULT_ID,
-        query='threshold content',
+        query='wholly unrelated inquiry phrase',
         filters=None,
         top_k=None,
         project=None,

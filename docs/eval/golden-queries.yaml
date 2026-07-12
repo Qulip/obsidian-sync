@@ -1,0 +1,35 @@
+# Golden query set for scripts/eval_search.py.
+#
+# FORMAT EXAMPLE ONLY -- these three entries are placeholders that show the
+# expected shape. There is no committed corpus of real user notes in this
+# repository, so running eval_search.py against this file as-is will report
+# near-zero recall/MRR unless you replace vault_id/query/expected_sources
+# with values that match notes that actually exist in your target vault.
+#
+# Fields:
+#   query:              natural-language search query, passed through as-is
+#   vault_id:            vault to search (must already exist and be indexed)
+#   expected_sources:    list of source_path values that should appear in
+#                        the top-K results, in relevance order (most
+#                        relevant first) -- used for Recall@K and MRR@K
+#   expected_headings:   optional list of heading_path strings expected on
+#                        the matching chunk(s); informational only, not
+#                        scored by this harness yet
+
+- query: 'How do I configure the Postgres connection pool for the sync API?'
+  vault_id: 'personal-notes'
+  expected_sources:
+    - 'Engineering/postgres-connection-pooling.md'
+  expected_headings:
+    - 'Connection Pool Sizing'
+
+- query: 'What is our policy on retrying failed webhook deliveries?'
+  vault_id: 'personal-notes'
+  expected_sources:
+    - 'Runbooks/webhook-retry-policy.md'
+    - 'Decisions/2025-webhook-backoff-decision.md'
+
+- query: 'Steps to rotate the Ollama embedding model without downtime'
+  vault_id: 'personal-notes'
+  expected_sources:
+    - 'Runbooks/ollama-model-rotation.md'

@@ -103,7 +103,18 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         payload: McpKnowledgeSearchRequest,
         ctx: Context[Any, Any, Request],
     ) -> dict[str, Any]:
-        """Search personal learning notes using semantic vector search."""
+        """Search personal learning notes using hybrid search (semantic vector
+        similarity + PostgreSQL full-text keyword matching, merged via
+        Reciprocal Rank Fusion).
+
+        The response includes `pending_vectorizing_jobs` and `index_fresh`.
+        If `pending_vectorizing_jobs > 0` (`index_fresh=False`), some files
+        have not finished indexing yet and results may be stale or
+        incomplete -- call `reindex_vault(mode=changed_only)` and search
+        again once it completes. `min_score` (0.0-1.0) filters out chunks
+        below that cosine-similarity threshold; when the filter removes all
+        candidates, `low_confidence=True` and `results` is empty.
+        """
         async with _session(app) as session:
             settings = _settings(app)
             metadata = await _metadata(ctx, session)
@@ -119,6 +130,7 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
                     model=settings.embedding_model,
                     timeout_seconds=settings.ollama_timeout_seconds,
                 ),
+                settings=settings,
             )
             return _dump(
                 ok(
@@ -129,6 +141,7 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
                         top_k=payload.top_k,
                         project=payload.project,
                         domain=payload.domain,
+                        min_score=payload.min_score,
                         token_id=metadata.token_id,
                         client_ip=metadata.client_ip,
                         user_agent=metadata.user_agent,

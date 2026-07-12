@@ -26,6 +26,7 @@ class KnowledgeSearchRequest(BaseModel):
     domain: str | None = None
     filters: dict[str, Any] | None = None
     top_k: int | None = None
+    min_score: float | None = None
 
 
 class AnswerContext(BaseModel):
@@ -59,6 +60,10 @@ class KnowledgeSearchResponse(BaseModel):
     filters: dict[str, Any]
     answer_context: AnswerContext
     results: list[KnowledgeSearchResult]
+    pending_vectorizing_jobs: int = 0
+    index_fresh: bool = True
+    min_score: float | None = None
+    low_confidence: bool = False
 
 
 class SearchLogItem(BaseModel):

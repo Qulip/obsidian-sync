@@ -46,3 +46,10 @@ class McpKnowledgeSearchRequest(BaseModel):
     domain: str | None = None
     filters: SearchFiltersRequest | None = None
     top_k: int | None = None
+    min_score: float | None = Field(
+        default=None,
+        description=(
+            'Minimum cosine-similarity score (0.0-1.0) a chunk must meet to '
+            'be returned; falls back to the server default when omitted.'
+        ),
+    )

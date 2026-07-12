@@ -5,6 +5,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     Index,
@@ -13,7 +14,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from obsidian_sync.db.base import DB_SCHEMA, Base
@@ -194,6 +195,13 @@ class KnowledgeChunk(Base):
         server_default='bge-m3',
     )
     embedding: Mapped[Any | None] = mapped_column(Vector(1024))
+    content_tsv: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "to_tsvector('simple', coalesce(title, '') || ' ' || content)",
+            persisted=True,
+        ),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,

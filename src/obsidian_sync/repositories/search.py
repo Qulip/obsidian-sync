@@ -2,16 +2,18 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
+from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from obsidian_sync.db.base import DB_SCHEMA
-from obsidian_sync.db.models import SearchLog, Vault
+from obsidian_sync.db.models import SearchLog, Vault, VaultFile
 from obsidian_sync.domain.search import SearchFilters
 
 
 @dataclass(frozen=True, slots=True)
 class SearchResultRecord:
+    chunk_id: int
     score: float
     source_path: str
     title: str | None
@@ -64,91 +66,83 @@ class SearchRepository:
         query_embedding: list[float],
         filters: SearchFilters,
         top_k: int,
+        candidate_limit: int | None = None,
     ) -> list[SearchResultRecord]:
-        where_parts = [
-            'kc.vault_id = :vault_id',
-            'kc.embedding IS NOT NULL',
-        ]
-        params: dict[str, Any] = {
-            'vault_id': vault_id,
-            'embedding': _vector_literal(query_embedding),
-            'top_k': top_k,
-        }
-        if filters.status:
-            where_parts.append('kc.status = ANY(:status)')
-            params['status'] = [str(value) for value in filters.status]
-        if filters.types:
-            where_parts.append('kc.type = ANY(:types)')
-            params['types'] = [str(value) for value in filters.types]
-        if filters.priority:
-            where_parts.append('kc.priority = ANY(:priority)')
-            params['priority'] = [str(value) for value in filters.priority]
-        if filters.visibility:
-            where_parts.append('kc.visibility = ANY(:visibility)')
-            params['visibility'] = [str(value) for value in filters.visibility]
-        if filters.project:
-            where_parts.append('kc.project = :project')
-            params['project'] = filters.project
-        if filters.domain:
-            where_parts.append('kc.domain = :domain')
-            params['domain'] = filters.domain
-        if filters.tags:
-            where_parts.append('kc.tags && CAST(:tags AS text[])')
-            params['tags'] = list(filters.tags)
+        where_parts, params = _base_where_and_params(
+            vault_id=vault_id, query_embedding=query_embedding, filters=filters
+        )
+        params['limit'] = candidate_limit if candidate_limit is not None else top_k
 
         query = f"""
             SELECT
-                1 - (kc.embedding <=> CAST(:embedding AS vector)) AS score,
-                kc.source_path,
-                kc.title,
-                kc.heading_path,
-                kc.type AS document_type,
-                kc.project,
-                kc.domain,
-                kc.priority,
-                kc.status,
-                kc.visibility,
-                kc.tags,
-                kc.content,
-                kc.agent_hint,
-                vf.revision AS file_revision,
-                vf.updated_at AS file_updated_at
+                {_SELECT_COLUMNS}
             FROM {DB_SCHEMA}.knowledge_chunks AS kc
-            LEFT JOIN {DB_SCHEMA}.vault_files AS vf
+            JOIN {DB_SCHEMA}.vault_files AS vf
                 ON vf.vault_id = kc.vault_id
                 AND vf.source_path = kc.source_path
+                AND vf.content_hash = kc.content_hash
             WHERE {' AND '.join(where_parts)}
             ORDER BY kc.embedding <=> CAST(:embedding AS vector)
-            LIMIT :top_k
+            LIMIT :limit
             """  # nosec B608
         statement = text(query)
         result = await self.session.execute(statement, params)
-        records: list[SearchResultRecord] = []
-        for row in result.mappings():
-            records.append(
-                SearchResultRecord(
-                    score=float(row['score']),
-                    source_path=str(row['source_path']),
-                    title=row['title'],
-                    heading_path=row['heading_path'],
-                    document_type=row['document_type'],
-                    project=row['project'],
-                    domain=row['domain'],
-                    priority=str(row['priority']),
-                    status=str(row['status']),
-                    visibility=str(row['visibility']),
-                    tags=row['tags'],
-                    content=str(row['content']),
-                    agent_hint=row['agent_hint'],
-                    revision=(
-                        int(row['file_revision'])
-                        if row['file_revision'] is not None
-                        else None
-                    ),
-                    updated_at=row['file_updated_at'],
-                )
+        return [_row_to_record(row) for row in result.mappings()]
+
+    async def search_chunks_lexical(
+        self,
+        *,
+        vault_id: str,
+        query_embedding: list[float],
+        query_text: str,
+        filters: SearchFilters,
+        candidate_limit: int,
+    ) -> list[SearchResultRecord]:
+        where_parts, params = _base_where_and_params(
+            vault_id=vault_id, query_embedding=query_embedding, filters=filters
+        )
+        where_parts.append(
+            "kc.content_tsv @@ websearch_to_tsquery('simple', :query_text)"
+        )
+        params['query_text'] = query_text
+        params['limit'] = candidate_limit
+
+        query = f"""
+            SELECT
+                {_SELECT_COLUMNS}
+            FROM {DB_SCHEMA}.knowledge_chunks AS kc
+            JOIN {DB_SCHEMA}.vault_files AS vf
+                ON vf.vault_id = kc.vault_id
+                AND vf.source_path = kc.source_path
+                AND vf.content_hash = kc.content_hash
+            WHERE {' AND '.join(where_parts)}
+            ORDER BY ts_rank(
+                kc.content_tsv, websearch_to_tsquery('simple', :query_text)
+            ) DESC
+            LIMIT :limit
+            """  # nosec B608
+        statement = text(query)
+        result = await self.session.execute(statement, params)
+        return [_row_to_record(row) for row in result.mappings()]
+
+    async def count_pending_reindex(self, vault_id: str) -> int:
+        """Count vault files awaiting reindexing, excluded from search results.
+
+        Mirrors SyncRepository.count_pending_vectorizing's condition so the
+        "pending" definition stays consistent across sync status and search
+        freshness reporting.
+        """
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(VaultFile)
+            .where(
+                VaultFile.vault_id == vault_id,
+                VaultFile.index_status == 'pending',
+                VaultFile.vectorize.is_(True),
+                VaultFile.deleted.is_(False),
             )
-        return records
+        )
+        return int(result.scalar_one())
 
     async def log_search(self, log: SearchLogWrite) -> None:
         self.session.add(
@@ -196,3 +190,82 @@ class SearchRepository:
 
 def _vector_literal(values: list[float]) -> str:
     return '[' + ','.join(str(value) for value in values) + ']'
+
+
+_SELECT_COLUMNS = """
+                kc.id AS chunk_id,
+                1 - (kc.embedding <=> CAST(:embedding AS vector)) AS score,
+                kc.source_path,
+                kc.title,
+                kc.heading_path,
+                kc.type AS document_type,
+                kc.project,
+                kc.domain,
+                kc.priority,
+                kc.status,
+                kc.visibility,
+                kc.tags,
+                kc.content,
+                kc.agent_hint,
+                vf.revision AS file_revision,
+                vf.updated_at AS file_updated_at""".strip()
+
+
+def _base_where_and_params(
+    *, vault_id: str, query_embedding: list[float], filters: SearchFilters
+) -> tuple[list[str], dict[str, Any]]:
+    where_parts = [
+        'kc.vault_id = :vault_id',
+        'kc.embedding IS NOT NULL',
+        'vf.deleted = false',
+        "vf.index_status = 'indexed'",
+    ]
+    params: dict[str, Any] = {
+        'vault_id': vault_id,
+        'embedding': _vector_literal(query_embedding),
+    }
+    if filters.status:
+        where_parts.append('kc.status = ANY(:status)')
+        params['status'] = [str(value) for value in filters.status]
+    if filters.types:
+        where_parts.append('kc.type = ANY(:types)')
+        params['types'] = [str(value) for value in filters.types]
+    if filters.priority:
+        where_parts.append('kc.priority = ANY(:priority)')
+        params['priority'] = [str(value) for value in filters.priority]
+    if filters.visibility:
+        where_parts.append('kc.visibility = ANY(:visibility)')
+        params['visibility'] = [str(value) for value in filters.visibility]
+    if filters.project:
+        where_parts.append('kc.project = :project')
+        params['project'] = filters.project
+    if filters.domain:
+        where_parts.append('kc.domain = :domain')
+        params['domain'] = filters.domain
+    if filters.tags:
+        where_parts.append('kc.tags && CAST(:tags AS text[])')
+        params['tags'] = list(filters.tags)
+    return where_parts, params
+
+
+def _row_to_record(row: RowMapping) -> SearchResultRecord:
+    return SearchResultRecord(
+        chunk_id=int(row['chunk_id']),
+        score=float(row['score']),
+        source_path=str(row['source_path']),
+        title=row['title'],
+        heading_path=row['heading_path'],
+        document_type=row['document_type'],
+        project=row['project'],
+        domain=row['domain'],
+        priority=str(row['priority']),
+        status=str(row['status']),
+        visibility=str(row['visibility']),
+        tags=row['tags'],
+        content=str(row['content']),
+        agent_hint=row['agent_hint'],
+        revision=(
+            int(row['file_revision']) if row['file_revision'] is not None else None
+        ),
+        updated_at=row['file_updated_at'],
+    )

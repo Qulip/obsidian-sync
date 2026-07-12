@@ -37,6 +37,7 @@ async def search_knowledge(
             model=settings.embedding_model,
             timeout_seconds=settings.ollama_timeout_seconds,
         ),
+        settings=settings,
     )
     return ok(
         await service.search(
@@ -46,6 +47,7 @@ async def search_knowledge(
             top_k=payload.top_k,
             project=payload.project,
             domain=payload.domain,
+            min_score=payload.min_score,
             token_id=metadata.token_id,
             client_ip=metadata.client_ip,
             user_agent=metadata.user_agent,

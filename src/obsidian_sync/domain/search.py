@@ -1,5 +1,5 @@
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from obsidian_sync.domain.enums import (
@@ -34,6 +34,7 @@ class NormalizedSearchQuery:
     query: str
     filters: SearchFilters
     top_k: int
+    min_score: float | None = None
 
 
 def normalize_top_k(top_k: int | None) -> int:
@@ -57,6 +58,7 @@ def normalize_search_query(
     top_k: int | None = None,
     project: str | None = None,
     domain: str | None = None,
+    min_score: float | None = None,
 ) -> NormalizedSearchQuery:
     normalized_vault_id = vault_id.strip()
     if not normalized_vault_id:
@@ -75,7 +77,19 @@ def normalize_search_query(
         query=normalized_query,
         filters=normalize_search_filters(filters, project=project, domain=domain),
         top_k=normalize_top_k(top_k),
+        min_score=_normalize_min_score(min_score),
     )
+
+
+def _normalize_min_score(min_score: float | None) -> float | None:
+    if min_score is None:
+        return None
+    if min_score < 0.0 or min_score > 1.0:
+        raise DomainValidationError(
+            'min_score must be between 0.0 and 1.0',
+            {'min_score': min_score},
+        )
+    return min_score
 
 
 def normalize_search_filters(
@@ -167,3 +181,25 @@ def _require_list(value: object, field: str) -> list[object]:
     if not isinstance(value, list):
         raise DomainValidationError(f'filter {field} must be a list')
     return value
+
+
+DEFAULT_RRF_K = 60
+
+
+def reciprocal_rank_fusion(
+    ranked_id_lists: Sequence[Sequence[int]], *, k: int = DEFAULT_RRF_K
+) -> list[int]:
+    """Merge ranked identifier lists using Reciprocal Rank Fusion.
+
+    Each inner sequence must already be ordered from most to least relevant
+    (rank 1 first). Every identifier's score is the sum of 1 / (k + rank)
+    across every list it appears in; identifiers absent from a list simply
+    contribute nothing from that list. The merged result is ordered by
+    descending RRF score, with ties broken by first-seen order across the
+    input lists (stable sort over dict insertion order).
+    """
+    scores: dict[int, float] = {}
+    for ranked_ids in ranked_id_lists:
+        for rank, identifier in enumerate(ranked_ids, start=1):
+            scores[identifier] = scores.get(identifier, 0.0) + 1.0 / (k + rank)
+    return sorted(scores, key=lambda identifier: scores[identifier], reverse=True)

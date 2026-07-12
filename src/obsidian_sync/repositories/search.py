@@ -144,6 +144,25 @@ class SearchRepository:
         )
         return int(result.scalar_one())
 
+    async def count_failed_reindex(self, vault_id: str) -> int:
+        """Count vault files whose reindex failed, excluded from search results.
+
+        Same shape as count_pending_reindex but for index_status='failed' --
+        files ReindexService could not vectorize after an error, which are
+        also missing from search results and must not be reported as fresh.
+        """
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(VaultFile)
+            .where(
+                VaultFile.vault_id == vault_id,
+                VaultFile.index_status == 'failed',
+                VaultFile.vectorize.is_(True),
+                VaultFile.deleted.is_(False),
+            )
+        )
+        return int(result.scalar_one())
+
     async def log_search(self, log: SearchLogWrite) -> None:
         self.session.add(
             SearchLog(

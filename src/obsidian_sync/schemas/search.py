@@ -62,6 +62,7 @@ class KnowledgeSearchResponse(BaseModel):
     answer_context: AnswerContext
     results: list[KnowledgeSearchResult]
     pending_vectorizing_jobs: int = 0
+    failed_vectorizing_jobs: int = 0
     index_fresh: bool = True
     min_score: float | None = None
     low_confidence: bool = False

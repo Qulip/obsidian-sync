@@ -111,11 +111,14 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         similarity + PostgreSQL full-text keyword matching, merged via
         Reciprocal Rank Fusion).
 
-        The response includes `pending_vectorizing_jobs` and `index_fresh`.
-        If `pending_vectorizing_jobs > 0` (`index_fresh=False`), some files
-        have not finished indexing yet and results may be stale or
-        incomplete -- call `reindex_vault(mode=changed_only)` and search
-        again once it completes. `min_score` (0.0-1.0) filters out chunks
+        The response includes `pending_vectorizing_jobs`,
+        `failed_vectorizing_jobs`, and `index_fresh`. `index_fresh` is
+        False when either count is greater than 0: `pending_vectorizing_jobs`
+        means some files have not finished indexing yet, and
+        `failed_vectorizing_jobs` means some files failed indexing and are
+        missing from results entirely -- in both cases call
+        `reindex_vault(mode=changed_only)` and search again once it
+        completes. `min_score` (0.0-1.0) filters out chunks
         below that cosine-similarity threshold; when the filter removes all
         candidates, `low_confidence=True` and `results` is empty.
 

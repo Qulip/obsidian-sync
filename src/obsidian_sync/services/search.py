@@ -104,6 +104,9 @@ class KnowledgeSearchService:
         pending_vectorizing_jobs = await self.repository.count_pending_reindex(
             normalized.vault_id
         )
+        failed_vectorizing_jobs = await self.repository.count_failed_reindex(
+            normalized.vault_id
+        )
         latency_ms = int((perf_counter() - started) * 1000)
         filter_payload = _filters_payload(normalized, effective_min_score)
         await self.repository.log_search(
@@ -129,10 +132,13 @@ class KnowledgeSearchService:
             project=normalized.filters.project,
             filters=filter_payload,
             answer_context=_build_answer_context(
-                pending_vectorizing_jobs, low_confidence=low_confidence
+                pending_vectorizing_jobs,
+                failed_vectorizing_jobs,
+                low_confidence=low_confidence,
             ),
             pending_vectorizing_jobs=pending_vectorizing_jobs,
-            index_fresh=pending_vectorizing_jobs == 0,
+            failed_vectorizing_jobs=failed_vectorizing_jobs,
+            index_fresh=pending_vectorizing_jobs == 0 and failed_vectorizing_jobs == 0,
             min_score=reported_min_score,
             low_confidence=low_confidence,
             reranked=reranked,
@@ -330,7 +336,10 @@ def _normalize_or_raise(
 
 
 def _build_answer_context(
-    pending_vectorizing_jobs: int, *, low_confidence: bool
+    pending_vectorizing_jobs: int,
+    failed_vectorizing_jobs: int,
+    *,
+    low_confidence: bool,
 ) -> AnswerContext:
     if low_confidence:
         return AnswerContext(
@@ -344,7 +353,7 @@ def _build_answer_context(
                 'or reporting that no matching notes were found.'
             ),
         )
-    if pending_vectorizing_jobs == 0:
+    if pending_vectorizing_jobs == 0 and failed_vectorizing_jobs == 0:
         return AnswerContext(
             summary='Search returned matching chunks based on query and metadata.',
             recommended_action=(
@@ -352,17 +361,27 @@ def _build_answer_context(
                 'results first.'
             ),
         )
+    notices: list[str] = []
+    if pending_vectorizing_jobs > 0:
+        notices.append(
+            f'{pending_vectorizing_jobs} file(s) are not yet indexed, so '
+            'results may be incomplete.'
+        )
+    if failed_vectorizing_jobs > 0:
+        notices.append(
+            f'{failed_vectorizing_jobs} file(s) failed indexing and are '
+            'missing from search results; check index failure logs.'
+        )
     return AnswerContext(
         summary=(
             'Search returned matching chunks based on query and metadata. '
-            f'{pending_vectorizing_jobs} file(s) are not yet indexed, so '
-            'results may be incomplete.'
+            + ' '.join(notices)
         ),
         recommended_action=(
             'Review source_path, heading_path, and agent_hint from the top '
-            'results first. Some files are still pending vectorization -- '
-            'run reindex_vault(mode=changed_only) and search again for '
-            'complete results.'
+            'results first. Some files are still pending or failed '
+            'vectorization -- run reindex_vault(mode=changed_only) and '
+            'search again for complete results.'
         ),
     )
 

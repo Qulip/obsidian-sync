@@ -149,6 +149,10 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         top candidates are reordered by relevance before `top_k` is
         applied and `reranked=True` is reported; it falls back silently
         to the original ranking on any failure.
+
+        Results are also capped per source_path (default 2) for diversity,
+        so `top_k` is not dominated by adjacent or overlapping chunks from
+        a single note.
         """
         async with _session(app) as session:
             settings = _settings(app)

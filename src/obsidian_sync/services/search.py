@@ -76,12 +76,22 @@ class KnowledgeSearchService:
                 normalized=normalized, query_embedding=query_embedding
             )
         else:
+            # Overfetch beyond top_k only when the per-source cap is active,
+            # so it has spare same-ranked candidates to backfill with after
+            # capping instead of shrinking the response below top_k. When
+            # the cap is disabled (0), fetch exactly top_k as before.
+            candidate_limit = (
+                self.settings.search_candidate_limit
+                if self.settings.search_per_source_limit > 0
+                else None
+            )
             candidates = await self.repository.search_chunks(
                 vault_id=normalized.vault_id,
                 query_embedding=query_embedding,
                 filters=normalized.filters,
                 top_k=normalized.top_k,
                 embedding_model=self.settings.embedding_model,
+                candidate_limit=candidate_limit,
             )
             matched_by = {record.chunk_id: 'vector' for record in candidates}
         candidate_count = len(candidates)
@@ -112,6 +122,9 @@ class KnowledgeSearchService:
             records, reranked = await self._maybe_rerank(
                 query=normalized.query, records=records
             )
+        records = _apply_per_source_cap(
+            records, limit=self.settings.search_per_source_limit
+        )
         records = records[: normalized.top_k]
         reported_min_score = effective_min_score if effective_min_score > 0.0 else None
 
@@ -462,6 +475,30 @@ def _build_answer_context(
             'complete results.'
         ),
     )
+
+
+def _apply_per_source_cap(
+    records: list[SearchResultRecord], *, limit: int
+) -> list[SearchResultRecord]:
+    """Cap how many chunks from the same source_path survive, keeping order.
+
+    Applied after min_score filtering and rerank, before the top_k slice.
+    Skipped-over chunks are simply dropped from this rank order -- the next
+    candidate from a different source (already present in the overfetched
+    candidate pool) fills the gap, so top_k is not shrunk by the cap.
+    `limit <= 0` disables the cap entirely.
+    """
+    if limit <= 0:
+        return records
+    counts: dict[str, int] = {}
+    capped: list[SearchResultRecord] = []
+    for record in records:
+        count = counts.get(record.source_path, 0)
+        if count >= limit:
+            continue
+        counts[record.source_path] = count + 1
+        capped.append(record)
+    return capped
 
 
 def _build_matched_by(

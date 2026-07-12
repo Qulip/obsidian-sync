@@ -1,3 +1,4 @@
+import base64
 import logging
 import time
 from collections.abc import Callable
@@ -8,6 +9,7 @@ from urllib.parse import quote
 import httpx
 
 from obsidian_sync.core.exceptions import ErrorCode
+from obsidian_sync.domain.sync_rules import is_markdown_path
 from obsidian_sync.schemas.sync import (
     DeleteFileData,
     FileContentData,
@@ -76,6 +78,26 @@ class SyncConflictError(Exception):
 
 def encode_vault_path(path: str) -> str:
     return '/'.join(quote(segment, safe='') for segment in path.split('/'))
+
+
+def decode_content(data: FileContentData) -> bytes:
+    """Decode a `FileContentData.content` payload back to raw bytes.
+
+    The inverse of the encoding `SyncClient.put_file` applies on the way
+    out: `utf8` (markdown, the default) is UTF-8 text, `base64` (attachments)
+    is base64. Driven by the server-reported `encoding` field rather than
+    re-deriving it from the path, so it stays correct even if a caller
+    fetches an unexpected file kind.
+    """
+    if data.encoding == 'base64':
+        return base64.b64decode(data.content)
+    return data.content.encode('utf-8')
+
+
+def _encode_for_wire(path: str, content: bytes) -> tuple[str, str]:
+    if is_markdown_path(path):
+        return content.decode('utf-8'), 'utf8'
+    return base64.b64encode(content).decode('ascii'), 'base64'
 
 
 def _parse_retry_after(response: httpx.Response) -> float | None:
@@ -200,8 +222,16 @@ class SyncClient:
         device_id: str,
         base_revision: int,
         content_hash: str,
-        content: str,
+        content: bytes,
     ) -> PutFileData:
+        """Push raw file bytes; `content_hash` is the sha256 of those bytes.
+
+        Markdown (`.md`) is sent as UTF-8 text (`encoding: "utf8"`, matching
+        the original wire format exactly); every other allowed extension
+        (images/PDFs) is sent base64-encoded (`encoding: "base64"`) so the
+        existing JSON envelope can carry binary content.
+        """
+        wire_content, encoding = _encode_for_wire(path, content)
         response = self._send(
             'PUT',
             f'/vaults/{quote(vault_id, safe="")}/files/{encode_vault_path(path)}',
@@ -209,7 +239,8 @@ class SyncClient:
                 'device_id': device_id,
                 'base_revision': base_revision,
                 'content_hash': content_hash,
-                'content': content,
+                'content': wire_content,
+                'encoding': encoding,
             },
         )
         return PutFileData.model_validate(self._success_data(response))

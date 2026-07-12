@@ -1,8 +1,10 @@
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from obsidian_sync.domain.hashing import sha256_file
+from obsidian_sync.domain.sync_rules import is_markdown_path
 from obsidian_sync.sync_agent.ignore import is_ignored_dir, should_sync
 from obsidian_sync.sync_agent.manifest import Manifest
 
@@ -22,8 +24,23 @@ class LocalChanges:
     deleted: list[str] = field(default_factory=list)
 
 
-def scan_vault(vault_root: Path) -> dict[str, ScannedFile]:
-    """Walk the vault and hash every syncable markdown file."""
+def scan_vault(
+    vault_root: Path,
+    *,
+    sync_attachments: bool = False,
+    attachment_max_bytes: int | None = None,
+    on_skipped_oversized: Callable[[str, int], None] | None = None,
+) -> dict[str, ScannedFile]:
+    """Walk the vault and hash every syncable file.
+
+    Markdown is always included, matching v1 behavior. Attachments
+    (images/PDFs) are included only when ``sync_attachments`` is enabled.
+    ``attachment_max_bytes`` is an early client-side skip guard -- files over
+    it are omitted from the scan (and never pushed); ``on_skipped_oversized``
+    is called with ``(path, size_bytes)`` for each one so callers can log a
+    warning. The server still enforces its own authoritative per-kind size
+    limits on every PUT regardless of what the client filters out first.
+    """
     root = vault_root.resolve()
     scanned: dict[str, ScannedFile] = {}
     for dirpath, dirnames, filenames in os.walk(root):
@@ -31,9 +48,17 @@ def scan_vault(vault_root: Path) -> dict[str, ScannedFile]:
         for filename in filenames:
             full = Path(dirpath) / filename
             rel = full.relative_to(root).as_posix()
-            if not should_sync(rel):
+            if not should_sync(rel, sync_attachments=sync_attachments):
                 continue
             stat = full.stat()
+            if (
+                attachment_max_bytes is not None
+                and not is_markdown_path(rel)
+                and stat.st_size > attachment_max_bytes
+            ):
+                if on_skipped_oversized is not None:
+                    on_skipped_oversized(rel, stat.st_size)
+                continue
             scanned[rel] = ScannedFile(
                 path=rel,
                 size=stat.st_size,

@@ -4,25 +4,25 @@ from datetime import UTC, datetime, timezone
 from pathlib import Path
 
 from obsidian_sync.domain.errors import DomainValidationError
-from obsidian_sync.domain.hashing import sha256_file, sha256_text
+from obsidian_sync.domain.hashing import sha256_bytes, sha256_file
 from obsidian_sync.domain.paths import normalize_source_path, safe_vault_destination
 from obsidian_sync.schemas.sync import SyncChangeItem
-from obsidian_sync.sync_agent.atomic import write_text_atomic
 from obsidian_sync.sync_agent.client import (
     DEFAULT_PAGE_LIMIT,
     SyncApiError,
     SyncClient,
     SyncConflictError,
+    decode_content,
 )
 from obsidian_sync.sync_agent.config import AgentConfig
-from obsidian_sync.sync_agent.conflict import (
-    LOCAL_DELETED_PLACEHOLDER,
-    SERVER_DELETED_PLACEHOLDER,
-    write_conflict_file,
+from obsidian_sync.sync_agent.conflict_resolution import (
+    resolve_pull_delete_conflict,
+    resolve_pull_write_conflict,
+    resolve_push_conflict,
+    write_server_content,
 )
 from obsidian_sync.sync_agent.manifest import (
     Manifest,
-    ManifestConflict,
     ManifestEntry,
     load_manifest,
     save_manifest,
@@ -30,6 +30,7 @@ from obsidian_sync.sync_agent.manifest import (
 from obsidian_sync.sync_agent.obsidian import refresh_obsidian
 from obsidian_sync.sync_agent.scanner import (
     LocalChanges,
+    ScannedFile,
     classify_local_changes,
     scan_vault,
 )
@@ -131,7 +132,7 @@ def _run(
     # file for the same divergence.
     pull_conflicts = set(summary.conflicts)
 
-    scanned = scan_vault(config.vault_root)
+    scanned = _scan_vault(config, summary, logger)
     local = classify_local_changes(scanned, manifest)
     _push(config, manifest, client, summary, logger, local, skip_paths=pull_conflicts)
 
@@ -164,7 +165,7 @@ def _plan(
             break
         cursor = page.to_cursor
 
-    scanned = scan_vault(config.vault_root)
+    scanned = _scan_vault(config, summary, logger)
     local = classify_local_changes(scanned, manifest)
     for path in local.new:
         logger.info('would create %s on server', path)
@@ -174,6 +175,27 @@ def _plan(
         logger.info('would delete %s on server', path)
     summary.pushed = len(local.new) + len(local.modified)
     summary.remotely_deleted = len(local.deleted)
+
+
+def _scan_vault(
+    config: AgentConfig,
+    summary: SyncSummary,
+    logger: logging.Logger,
+) -> dict[str, ScannedFile]:
+    def _warn_skipped(path: str, size_bytes: int) -> None:
+        message = (
+            f'skipping oversized attachment {path} ({size_bytes} bytes > '
+            f'attachment_max_bytes={config.attachment_max_bytes})'
+        )
+        logger.warning(message)
+        summary.warnings.append(message)
+
+    return scan_vault(
+        config.vault_root,
+        sync_attachments=config.sync_attachments,
+        attachment_max_bytes=config.attachment_max_bytes,
+        on_skipped_oversized=_warn_skipped,
+    )
 
 
 def _pull(
@@ -231,7 +253,9 @@ def _apply_change(
             return
 
     if is_delete:
-        _apply_delete(config, manifest, summary, logger, change, destination, entry)
+        _apply_delete(
+            config, manifest, client, summary, logger, change, destination, entry
+        )
         return
     _apply_write(config, manifest, client, summary, logger, change, destination, entry)
 
@@ -239,6 +263,7 @@ def _apply_change(
 def _apply_delete(
     config: AgentConfig,
     manifest: Manifest,
+    client: SyncClient,
     summary: SyncSummary,
     logger: logging.Logger,
     change: SyncChangeItem,
@@ -258,23 +283,17 @@ def _apply_delete(
         summary.locally_deleted += 1
         logger.info('deleted %s (server revision %s)', path, change.revision)
         return
-    conflict = write_conflict_file(
-        config.vault_root,
-        path,
-        device_id=config.device_id,
-        client_base_revision=entry.server_revision if entry else 0,
-        server_revision=change.revision,
-        local_content=destination.read_text(encoding='utf-8'),
-        server_content=SERVER_DELETED_PLACEHOLDER,
+    resolve_pull_delete_conflict(
+        config,
+        client,
+        manifest,
+        summary,
+        logger,
+        change,
+        destination,
+        entry,
+        local_hash,
     )
-    manifest.conflicts[path] = ManifestConflict(
-        server_revision=change.revision,
-        server_content_hash=change.content_hash,
-        local_content_hash=local_hash,
-        server_deleted=True,
-    )
-    summary.conflicts.append(path)
-    logger.warning('conflict on delete of %s; wrote %s', path, conflict.name)
 
 
 def _apply_write(
@@ -290,7 +309,7 @@ def _apply_write(
     path = change.path
     server_file = client.get_file(config.vault_id, path)
 
-    if sha256_text(server_file.content) != server_file.content_hash:
+    if sha256_bytes(decode_content(server_file)) != server_file.content_hash:
         message = f'server content hash mismatch for {path}; skipped'
         logger.warning(message)
         summary.warnings.append(message)
@@ -305,26 +324,21 @@ def _apply_write(
             else local_hash != server_file.content_hash
         )
         if dirty:
-            conflict = write_conflict_file(
-                config.vault_root,
-                path,
-                device_id=config.device_id,
-                client_base_revision=entry.server_revision if entry else 0,
-                server_revision=change.revision,
-                local_content=destination.read_text(encoding='utf-8'),
-                server_content=server_file.content,
+            resolve_pull_write_conflict(
+                config,
+                client,
+                manifest,
+                summary,
+                logger,
+                change,
+                destination,
+                entry,
+                local_hash,
+                server_file,
             )
-            manifest.conflicts[path] = ManifestConflict(
-                server_revision=server_file.revision,
-                server_content_hash=server_file.content_hash,
-                local_content_hash=local_hash,
-                server_deleted=False,
-            )
-            summary.conflicts.append(path)
-            logger.warning('conflict applying %s; wrote %s', path, conflict.name)
             return
 
-    write_text_atomic(destination, server_file.content)
+    write_server_content(destination, server_file)
     manifest.files[path] = ManifestEntry(
         server_revision=server_file.revision,
         content_hash=server_file.content_hash,
@@ -386,8 +400,8 @@ def _push_upsert(
     base_revision: int,
 ) -> None:
     destination = safe_vault_destination(config.vault_root, path)
-    content = destination.read_text(encoding='utf-8')
-    content_hash = sha256_text(content)
+    content = destination.read_bytes()
+    content_hash = sha256_bytes(content)
     try:
         result = client.put_file(
             config.vault_id,
@@ -398,7 +412,17 @@ def _push_upsert(
             content=content,
         )
     except SyncConflictError as exc:
-        _push_conflict(config, client, summary, logger, path, exc, content)
+        resolve_push_conflict(
+            config,
+            client,
+            manifest,
+            summary,
+            logger,
+            path,
+            exc,
+            content,
+            is_delete=False,
+        )
         return
     manifest.files[path] = ManifestEntry(
         server_revision=result.revision,
@@ -440,42 +464,22 @@ def _push_delete(
             base_revision=base_revision,
         )
     except SyncConflictError as exc:
-        _push_conflict(
-            config, client, summary, logger, path, exc, LOCAL_DELETED_PLACEHOLDER
+        resolve_push_conflict(
+            config,
+            client,
+            manifest,
+            summary,
+            logger,
+            path,
+            exc,
+            None,
+            is_delete=True,
         )
         return
     manifest.files.pop(path, None)
     manifest.conflicts.pop(path, None)
     summary.remotely_deleted += 1
     logger.info('deleted %s on server', path)
-
-
-def _push_conflict(
-    config: AgentConfig,
-    client: SyncClient,
-    summary: SyncSummary,
-    logger: logging.Logger,
-    path: str,
-    exc: SyncConflictError,
-    local_content: str,
-) -> None:
-    server_revision = _int_detail(exc.details.get('server_revision'))
-    client_base = _int_detail(exc.details.get('client_base_revision'))
-    try:
-        server_content = client.get_file(config.vault_id, path).content
-    except SyncApiError:
-        server_content = SERVER_DELETED_PLACEHOLDER
-    conflict = write_conflict_file(
-        config.vault_root,
-        path,
-        device_id=config.device_id,
-        client_base_revision=client_base,
-        server_revision=server_revision,
-        local_content=local_content,
-        server_content=server_content,
-    )
-    summary.conflicts.append(path)
-    logger.warning('push conflict on %s; wrote %s', path, conflict.name)
 
 
 def _run_obsidian(
@@ -506,10 +510,6 @@ def _load_and_validate_manifest(config: AgentConfig) -> Manifest:
     manifest.vault_id = config.vault_id
     manifest.device_id = config.device_id
     return manifest
-
-
-def _int_detail(value: object) -> int:
-    return value if isinstance(value, int) else 0
 
 
 def _now_iso() -> str:

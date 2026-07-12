@@ -5,13 +5,19 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from obsidian_sync.sync_agent.config import (
+    ATTACHMENT_MAX_BYTES_ENV,
+    CONFLICT_POLICY_ENV,
+    DEFAULT_ATTACHMENT_MAX_BYTES,
     DEVICE_ID_ENV,
     MAX_RETRIES_ENV,
     RETRY_BASE_DELAY_ENV,
     RETRY_MAX_DELAY_ENV,
     SERVER_ENV,
+    SYNC_ATTACHMENTS_ENV,
     TOKEN_ENV,
     VAULT_ID_ENV,
+    WATCH_DEBOUNCE_SECONDS_ENV,
+    WATCH_INTERVAL_SECONDS_ENV,
     CliOverrides,
     ConfigError,
     load_config,
@@ -233,4 +239,279 @@ class RetryConfigPrecedenceTests(TestCase):
                             retry_base_delay=10.0,
                             retry_max_delay=5.0,
                         )
+                    )
+
+
+class ConflictPolicyConfigPrecedenceTests(TestCase):
+    def test_defaults_to_manual_when_unset(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {'server_base_url': 'https://file.example', 'vault_id': 'file-vault'},
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                config = load_config(CliOverrides(vault_root=root))
+
+        self.assertEqual(config.conflict_policy, 'manual')
+
+    def test_file_value_used_when_no_env_or_cli(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {
+                    'server_base_url': 'https://file.example',
+                    'vault_id': 'file-vault',
+                    'conflict_policy': 'remote-wins',
+                },
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                config = load_config(CliOverrides(vault_root=root))
+
+        self.assertEqual(config.conflict_policy, 'remote-wins')
+
+    def test_env_overrides_file(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {
+                    'server_base_url': 'https://file.example',
+                    'vault_id': 'file-vault',
+                    'conflict_policy': 'remote-wins',
+                },
+            )
+            env = {CONFLICT_POLICY_ENV: 'local-wins'}
+            with patch.dict('os.environ', env, clear=True):
+                config = load_config(CliOverrides(vault_root=root))
+
+        self.assertEqual(config.conflict_policy, 'local-wins')
+
+    def test_cli_overrides_env_and_file(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {
+                    'server_base_url': 'https://file.example',
+                    'vault_id': 'file-vault',
+                    'conflict_policy': 'remote-wins',
+                },
+            )
+            env = {CONFLICT_POLICY_ENV: 'local-wins'}
+            overrides = CliOverrides(vault_root=root, conflict_policy='manual')
+            with patch.dict('os.environ', env, clear=True):
+                config = load_config(overrides)
+
+        self.assertEqual(config.conflict_policy, 'manual')
+
+    def test_invalid_value_is_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {'server_base_url': 'https://file.example', 'vault_id': 'file-vault'},
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                with self.assertRaises(ConfigError):
+                    load_config(
+                        CliOverrides(vault_root=root, conflict_policy='obsidian-wins')
+                    )
+
+
+class SyncAttachmentsConfigPrecedenceTests(TestCase):
+    def test_defaults_to_false(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {'server_base_url': 'https://file.example', 'vault_id': 'file-vault'},
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                config = load_config(CliOverrides(vault_root=root))
+
+        self.assertFalse(config.sync_attachments)
+        self.assertEqual(config.attachment_max_bytes, DEFAULT_ATTACHMENT_MAX_BYTES)
+
+    def test_file_value_used_when_no_env_or_cli(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {
+                    'server_base_url': 'https://file.example',
+                    'vault_id': 'file-vault',
+                    'sync_attachments': True,
+                    'attachment_max_bytes': 1024,
+                },
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                config = load_config(CliOverrides(vault_root=root))
+
+        self.assertTrue(config.sync_attachments)
+        self.assertEqual(config.attachment_max_bytes, 1024)
+
+    def test_env_overrides_file(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {
+                    'server_base_url': 'https://file.example',
+                    'vault_id': 'file-vault',
+                    'sync_attachments': False,
+                },
+            )
+            env = {
+                SYNC_ATTACHMENTS_ENV: 'true',
+                ATTACHMENT_MAX_BYTES_ENV: '2048',
+            }
+            with patch.dict('os.environ', env, clear=True):
+                config = load_config(CliOverrides(vault_root=root))
+
+        self.assertTrue(config.sync_attachments)
+        self.assertEqual(config.attachment_max_bytes, 2048)
+
+    def test_cli_overrides_env_and_file(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {'server_base_url': 'https://file.example', 'vault_id': 'file-vault'},
+            )
+            env = {SYNC_ATTACHMENTS_ENV: 'false'}
+            overrides = CliOverrides(
+                vault_root=root, sync_attachments=True, attachment_max_bytes=4096
+            )
+            with patch.dict('os.environ', env, clear=True):
+                config = load_config(overrides)
+
+        self.assertTrue(config.sync_attachments)
+        self.assertEqual(config.attachment_max_bytes, 4096)
+
+    def test_invalid_env_bool_is_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {'server_base_url': 'https://file.example', 'vault_id': 'file-vault'},
+            )
+            env = {SYNC_ATTACHMENTS_ENV: 'maybe'}
+            with patch.dict('os.environ', env, clear=True):
+                with self.assertRaises(ConfigError):
+                    load_config(CliOverrides(vault_root=root))
+
+    def test_non_positive_attachment_max_bytes_is_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {'server_base_url': 'https://file.example', 'vault_id': 'file-vault'},
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                with self.assertRaises(ConfigError):
+                    load_config(CliOverrides(vault_root=root, attachment_max_bytes=0))
+
+
+class WatchConfigPrecedenceTests(TestCase):
+    def test_defaults_when_unset(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {'server_base_url': 'https://file.example', 'vault_id': 'file-vault'},
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                config = load_config(CliOverrides(vault_root=root))
+
+        self.assertEqual(config.watch_debounce_seconds, 2.0)
+        self.assertEqual(config.watch_interval_seconds, 0.0)
+
+    def test_file_values_used_when_no_env_or_cli(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {
+                    'server_base_url': 'https://file.example',
+                    'vault_id': 'file-vault',
+                    'watch_debounce_seconds': 5.0,
+                    'watch_interval_seconds': 300.0,
+                },
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                config = load_config(CliOverrides(vault_root=root))
+
+        self.assertEqual(config.watch_debounce_seconds, 5.0)
+        self.assertEqual(config.watch_interval_seconds, 300.0)
+
+    def test_env_overrides_file(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {
+                    'server_base_url': 'https://file.example',
+                    'vault_id': 'file-vault',
+                    'watch_debounce_seconds': 5.0,
+                },
+            )
+            env = {
+                WATCH_DEBOUNCE_SECONDS_ENV: '1.5',
+                WATCH_INTERVAL_SECONDS_ENV: '60',
+            }
+            with patch.dict('os.environ', env, clear=True):
+                config = load_config(CliOverrides(vault_root=root))
+
+        self.assertEqual(config.watch_debounce_seconds, 1.5)
+        self.assertEqual(config.watch_interval_seconds, 60.0)
+
+    def test_cli_overrides_env_and_file(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {
+                    'server_base_url': 'https://file.example',
+                    'vault_id': 'file-vault',
+                    'watch_debounce_seconds': 5.0,
+                },
+            )
+            env = {WATCH_DEBOUNCE_SECONDS_ENV: '1.5'}
+            overrides = CliOverrides(
+                vault_root=root,
+                watch_debounce_seconds=0.25,
+                watch_interval_seconds=10.0,
+            )
+            with patch.dict('os.environ', env, clear=True):
+                config = load_config(overrides)
+
+        self.assertEqual(config.watch_debounce_seconds, 0.25)
+        self.assertEqual(config.watch_interval_seconds, 10.0)
+
+    def test_non_positive_debounce_is_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {'server_base_url': 'https://file.example', 'vault_id': 'file-vault'},
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                with self.assertRaises(ConfigError):
+                    load_config(
+                        CliOverrides(vault_root=root, watch_debounce_seconds=0.0)
+                    )
+
+    def test_negative_interval_is_rejected(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_config_file(
+                root,
+                {'server_base_url': 'https://file.example', 'vault_id': 'file-vault'},
+            )
+            with patch.dict('os.environ', {}, clear=True):
+                with self.assertRaises(ConfigError):
+                    load_config(
+                        CliOverrides(vault_root=root, watch_interval_seconds=-1.0)
                     )

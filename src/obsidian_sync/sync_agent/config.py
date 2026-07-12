@@ -3,8 +3,9 @@ import os
 import socket
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+from obsidian_sync.domain.files import PDF_MAX_BYTES
 from obsidian_sync.sync_agent.client import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_BASE_DELAY,
@@ -23,8 +24,35 @@ OBSIDIAN_KEY_ENV = 'OBSIDIAN_LOCAL_REST_API_KEY'
 MAX_RETRIES_ENV = 'OBSIDIAN_SYNC_AGENT_MAX_RETRIES'
 RETRY_BASE_DELAY_ENV = 'OBSIDIAN_SYNC_AGENT_RETRY_BASE_DELAY'
 RETRY_MAX_DELAY_ENV = 'OBSIDIAN_SYNC_AGENT_RETRY_MAX_DELAY'
+CONFLICT_POLICY_ENV = 'OBSIDIAN_SYNC_AGENT_CONFLICT_POLICY'
+SYNC_ATTACHMENTS_ENV = 'OBSIDIAN_SYNC_AGENT_SYNC_ATTACHMENTS'
+ATTACHMENT_MAX_BYTES_ENV = 'OBSIDIAN_SYNC_AGENT_ATTACHMENT_MAX_BYTES'
+WATCH_DEBOUNCE_SECONDS_ENV = 'OBSIDIAN_SYNC_AGENT_WATCH_DEBOUNCE_SECONDS'
+WATCH_INTERVAL_SECONDS_ENV = 'OBSIDIAN_SYNC_AGENT_WATCH_INTERVAL_SECONDS'
 
 DEFAULT_OBSIDIAN_BASE_URL = 'https://127.0.0.1:27124'
+
+# Matches domain.files.PDF_MAX_BYTES, the largest allowed attachment kind.
+# This is only an early client-side skip guard (logged as a warning, see
+# scanner.scan_vault) -- the server still enforces the authoritative,
+# per-kind limits (domain.files.IMAGE_MAX_BYTES / PDF_MAX_BYTES) on every
+# PUT regardless of what the client filters out first.
+DEFAULT_ATTACHMENT_MAX_BYTES = PDF_MAX_BYTES
+
+# How long the `watch` command waits for filesystem events to go quiet
+# before running a sync cycle (batches bursts of events into one sync).
+DEFAULT_WATCH_DEBOUNCE_SECONDS = 2.0
+# Periodic safety-net sync interval for `watch` mode; 0 disables it (rely on
+# filesystem events only).
+DEFAULT_WATCH_INTERVAL_SECONDS = 0.0
+
+ConflictPolicy = Literal['manual', 'local-wins', 'remote-wins']
+CONFLICT_POLICIES: tuple[ConflictPolicy, ...] = (
+    'manual',
+    'local-wins',
+    'remote-wins',
+)
+DEFAULT_CONFLICT_POLICY: ConflictPolicy = 'manual'
 
 
 class ConfigError(Exception):
@@ -53,6 +81,13 @@ class AgentConfig:
     max_retries: int = DEFAULT_MAX_RETRIES
     retry_base_delay: float = DEFAULT_RETRY_BASE_DELAY
     retry_max_delay: float = DEFAULT_RETRY_MAX_DELAY
+    conflict_policy: ConflictPolicy = DEFAULT_CONFLICT_POLICY
+    # Off by default for backward compatibility: v1 agents that never opted
+    # in keep syncing markdown only, exactly as before this feature existed.
+    sync_attachments: bool = False
+    attachment_max_bytes: int = DEFAULT_ATTACHMENT_MAX_BYTES
+    watch_debounce_seconds: float = DEFAULT_WATCH_DEBOUNCE_SECONDS
+    watch_interval_seconds: float = DEFAULT_WATCH_INTERVAL_SECONDS
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +100,11 @@ class CliOverrides:
     max_retries: int | None = None
     retry_base_delay: float | None = None
     retry_max_delay: float | None = None
+    conflict_policy: str | None = None
+    sync_attachments: bool | None = None
+    attachment_max_bytes: int | None = None
+    watch_debounce_seconds: float | None = None
+    watch_interval_seconds: float | None = None
 
 
 def sanitize_device_id(raw: str) -> str:
@@ -142,6 +182,22 @@ def _env_float(name: str) -> float | None:
         return float(raw)
     except ValueError as exc:
         raise ConfigError(f'{name} must be a number, got {raw!r}') from exc
+
+
+_TRUE_STRINGS = frozenset({'1', 'true', 'yes', 'on'})
+_FALSE_STRINGS = frozenset({'0', 'false', 'no', 'off'})
+
+
+def _env_bool(name: str) -> bool | None:
+    raw = os.environ.get(name)
+    if raw is None or raw == '':
+        return None
+    normalized = raw.strip().lower()
+    if normalized in _TRUE_STRINGS:
+        return True
+    if normalized in _FALSE_STRINGS:
+        return False
+    raise ConfigError(f'{name} must be a boolean (true/false), got {raw!r}')
 
 
 def _as_optional_int(value: object) -> int | None:
@@ -252,6 +308,54 @@ def load_config(overrides: CliOverrides) -> AgentConfig:
     if retry_max_delay < retry_base_delay:
         raise ConfigError('retry_max_delay must be >= retry_base_delay')
 
+    conflict_policy_raw = _pick_str(
+        overrides.conflict_policy,
+        os.environ.get(CONFLICT_POLICY_ENV),
+        _as_optional_str(file_data.get('conflict_policy')),
+    )
+    conflict_policy = conflict_policy_raw or DEFAULT_CONFLICT_POLICY
+    if conflict_policy not in CONFLICT_POLICIES:
+        raise ConfigError(
+            'conflict_policy must be one of '
+            f'{", ".join(CONFLICT_POLICIES)}, got {conflict_policy!r}'
+        )
+
+    sync_attachments = _pick_bool(
+        overrides.sync_attachments,
+        _env_bool(SYNC_ATTACHMENTS_ENV),
+        _as_optional_bool(file_data.get('sync_attachments')),
+    )
+
+    attachment_max_bytes = _pick_int(
+        overrides.attachment_max_bytes,
+        _env_int(ATTACHMENT_MAX_BYTES_ENV),
+        _as_optional_int(file_data.get('attachment_max_bytes')),
+    )
+    if attachment_max_bytes is None:
+        attachment_max_bytes = DEFAULT_ATTACHMENT_MAX_BYTES
+    if attachment_max_bytes <= 0:
+        raise ConfigError('attachment_max_bytes must be greater than zero')
+
+    watch_debounce_seconds = _pick_float(
+        overrides.watch_debounce_seconds,
+        _env_float(WATCH_DEBOUNCE_SECONDS_ENV),
+        _as_optional_float(file_data.get('watch_debounce_seconds')),
+    )
+    if watch_debounce_seconds is None:
+        watch_debounce_seconds = DEFAULT_WATCH_DEBOUNCE_SECONDS
+    if watch_debounce_seconds <= 0:
+        raise ConfigError('watch_debounce_seconds must be greater than zero')
+
+    watch_interval_seconds = _pick_float(
+        overrides.watch_interval_seconds,
+        _env_float(WATCH_INTERVAL_SECONDS_ENV),
+        _as_optional_float(file_data.get('watch_interval_seconds')),
+    )
+    if watch_interval_seconds is None:
+        watch_interval_seconds = DEFAULT_WATCH_INTERVAL_SECONDS
+    if watch_interval_seconds < 0:
+        raise ConfigError('watch_interval_seconds must be zero or greater')
+
     return AgentConfig(
         server_base_url=server.rstrip('/'),
         vault_id=vault_id,
@@ -264,6 +368,11 @@ def load_config(overrides: CliOverrides) -> AgentConfig:
         max_retries=max_retries,
         retry_base_delay=retry_base_delay,
         retry_max_delay=retry_max_delay,
+        conflict_policy=conflict_policy,
+        sync_attachments=bool(sync_attachments),
+        attachment_max_bytes=attachment_max_bytes,
+        watch_debounce_seconds=watch_debounce_seconds,
+        watch_interval_seconds=watch_interval_seconds,
     )
 
 

@@ -1,10 +1,18 @@
+import base64
+import json
 from collections.abc import Callable
 from typing import Any
 from unittest import TestCase
 
 import httpx
 
-from obsidian_sync.sync_agent.client import SyncApiError, SyncClient, SyncConflictError
+from obsidian_sync.schemas.sync import FileContentData
+from obsidian_sync.sync_agent.client import (
+    SyncApiError,
+    SyncClient,
+    SyncConflictError,
+    decode_content,
+)
 
 BASE_URL = 'https://sync.example'
 
@@ -173,3 +181,89 @@ class RetryAfterHeaderTests(TestCase):
             client.register_device('v1', device_id='dev1', device_name=None)
 
         self.assertEqual(recorder.delays, [10.0])
+
+
+class PutFileWireEncodingTests(TestCase):
+    """`put_file` picks the wire encoding from the path's extension."""
+
+    def test_markdown_is_sent_as_plain_utf8_text(self) -> None:
+        seen: dict[str, Any] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.update(json.loads(request.content))
+            return _success_response(
+                {
+                    'vault_id': 'v1',
+                    'path': 'notes/a.md',
+                    'revision': 1,
+                    'content_hash': 'h',
+                }
+            )
+
+        with _make_client(handler) as client:
+            client.put_file(
+                'v1',
+                'notes/a.md',
+                device_id='dev1',
+                base_revision=0,
+                content_hash='h',
+                content=b'hello',
+            )
+
+        self.assertEqual(seen['encoding'], 'utf8')
+        self.assertEqual(seen['content'], 'hello')
+
+    def test_attachment_is_sent_base64_encoded(self) -> None:
+        seen: dict[str, Any] = {}
+        raw = b'\x89PNG\r\n\x1a\nbinary-bytes'
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.update(json.loads(request.content))
+            return _success_response(
+                {
+                    'vault_id': 'v1',
+                    'path': 'img/photo.png',
+                    'revision': 1,
+                    'content_hash': 'h',
+                }
+            )
+
+        with _make_client(handler) as client:
+            client.put_file(
+                'v1',
+                'img/photo.png',
+                device_id='dev1',
+                base_revision=0,
+                content_hash='h',
+                content=raw,
+            )
+
+        self.assertEqual(seen['encoding'], 'base64')
+        self.assertEqual(base64.b64decode(seen['content']), raw)
+
+
+class DecodeContentTests(TestCase):
+    def test_decodes_utf8_content(self) -> None:
+        data = FileContentData(
+            vault_id='v1',
+            path='notes/a.md',
+            revision=1,
+            content_hash='h',
+            content='hello',
+            encoding='utf8',
+            deleted=False,
+        )
+        self.assertEqual(decode_content(data), b'hello')
+
+    def test_decodes_base64_content(self) -> None:
+        raw = b'\x89PNG\r\n\x1a\nbinary-bytes'
+        data = FileContentData(
+            vault_id='v1',
+            path='img/photo.png',
+            revision=1,
+            content_hash='h',
+            content=base64.b64encode(raw).decode('ascii'),
+            encoding='base64',
+            deleted=False,
+        )
+        self.assertEqual(decode_content(data), raw)

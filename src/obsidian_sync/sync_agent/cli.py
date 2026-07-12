@@ -10,6 +10,7 @@ from obsidian_sync.sync_agent.engine import (
     run_status,
     run_sync,
 )
+from obsidian_sync.sync_agent.watch import run_watch
 
 EXIT_OK = 0
 EXIT_CONFLICTS = 1
@@ -43,6 +44,27 @@ def build_parser() -> argparse.ArgumentParser:
         'status', help='show server and local sync status'
     )
     _add_common_arguments(status_parser)
+
+    watch_parser = subparsers.add_parser(
+        'watch',
+        help='watch the vault and run a sync cycle after debounced changes',
+    )
+    _add_common_arguments(watch_parser)
+    watch_parser.add_argument(
+        '--require-obsidian-refresh',
+        action='store_true',
+        help='log an error if the Obsidian refresh step fails after a sync',
+    )
+    watch_parser.add_argument(
+        '--watch-debounce-seconds',
+        type=float,
+        help='quiet period (seconds) after the last change before syncing',
+    )
+    watch_parser.add_argument(
+        '--watch-interval-seconds',
+        type=float,
+        help='periodic safety-net sync interval (seconds); 0 disables it',
+    )
     return parser
 
 
@@ -67,6 +89,30 @@ def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
         type=float,
         help='cap (seconds) on the computed backoff delay',
     )
+    parser.add_argument(
+        '--conflict-policy',
+        help=(
+            'conflict resolution policy: manual (default, writes .conflict '
+            'files), local-wins, or remote-wins'
+        ),
+    )
+    parser.add_argument(
+        '--sync-attachments',
+        action='store_true',
+        default=None,
+        help='also sync allowed attachments (images/PDFs), not just .md',
+    )
+    parser.add_argument(
+        '--no-sync-attachments',
+        dest='sync_attachments',
+        action='store_false',
+        help='disable attachment syncing even if config/env enables it',
+    )
+    parser.add_argument(
+        '--attachment-max-bytes',
+        type=int,
+        help='skip local attachments larger than this many bytes',
+    )
 
 
 def _configure_logging(verbose: bool) -> None:
@@ -88,6 +134,11 @@ def _overrides(args: argparse.Namespace) -> CliOverrides:
         max_retries=args.max_retries,
         retry_base_delay=args.retry_base_delay,
         retry_max_delay=args.retry_max_delay,
+        conflict_policy=args.conflict_policy,
+        sync_attachments=args.sync_attachments,
+        attachment_max_bytes=args.attachment_max_bytes,
+        watch_debounce_seconds=getattr(args, 'watch_debounce_seconds', None),
+        watch_interval_seconds=getattr(args, 'watch_interval_seconds', None),
     )
 
 
@@ -131,6 +182,11 @@ def _run_sync_command(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _run_watch_command(args: argparse.Namespace) -> int:
+    config = load_config(_overrides(args))
+    return run_watch(config, logger)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _configure_logging(bool(args.verbose))
@@ -140,6 +196,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == 'status':
             run_status(load_config(_overrides(args)), logger)
             return EXIT_OK
+        if args.command == 'watch':
+            return _run_watch_command(args)
     except ConfigError as exc:
         logger.error('configuration error: %s', exc)
         return EXIT_ERROR

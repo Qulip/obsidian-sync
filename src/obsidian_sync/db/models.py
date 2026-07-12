@@ -304,6 +304,11 @@ class SyncEvent(Base):
         server_default=func.now(),
     )
     created_by_device_id: Mapped[str | None] = mapped_column(Text)
+    # Which write path produced this event: 'mcp' for a normal MCP
+    # sync_file upload, 'mcp_overwrite' for an explicit overwrite=True
+    # forced replace. NULL for events recorded through the bidirectional
+    # (base_revision) revision sync API, preserving its existing behavior.
+    origin: Mapped[str | None] = mapped_column(Text)
 
 
 class SyncConflict(Base):
@@ -409,6 +414,15 @@ class ApiToken(Base):
         DateTime,
         nullable=False,
         server_default=func.now(),
+    )
+    # Fail-closed: new tokens cannot force-overwrite existing MCP content
+    # (McpSyncFileRequest.overwrite=True) unless explicitly granted. Tokens
+    # that existed before this column was introduced are backfilled to
+    # true by the migration that adds it, preserving their prior behavior.
+    allow_overwrite: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default='false',
     )
 
 

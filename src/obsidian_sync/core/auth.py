@@ -18,6 +18,7 @@ _PREFIX_LEN = 12
 
 class AuthContext(BaseModel):
     token_id: str
+    allow_overwrite: bool = False
 
 
 def _hash_token(token: str) -> str:
@@ -57,7 +58,10 @@ async def authenticate_bearer_token(
         raise AppError(ErrorCode.UNAUTHORIZED, 'Invalid bearer token.', status_code=401)
 
     await repo.touch_last_used(db_token.id)
-    return AuthContext(token_id=h[:_PREFIX_LEN])
+    return AuthContext(
+        token_id=h[:_PREFIX_LEN],
+        allow_overwrite=db_token.allow_overwrite,
+    )
 
 
 async def require_admin_token(
@@ -78,4 +82,7 @@ async def require_admin_token(
         raise AppError(
             ErrorCode.UNAUTHORIZED, 'Admin access required.', status_code=401
         )
-    return AuthContext(token_id=token_identifier(configured_token))
+    return AuthContext(
+        token_id=token_identifier(configured_token),
+        allow_overwrite=True,
+    )

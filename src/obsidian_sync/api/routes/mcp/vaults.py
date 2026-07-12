@@ -50,9 +50,20 @@ async def sync_file(
 
     Writes the note content to the personal knowledge base. Fails closed: if
     path already exists with different content, this returns a 409 conflict
-    instead of silently overwriting it — pass overwrite=True to explicitly
-    replace it. Content must be valid markdown; frontmatter (title, tags,
-    date) should be included at the top.
+    instead of silently overwriting it. Content must be valid markdown;
+    frontmatter (title, tags, date) should be included at the top.
+
+    Two opt-in ways to write anyway, mutually exclusive (400 if both are
+    set):
+    - overwrite=True: force-replace the existing content. Requires a token
+      with overwrite permission, or the call fails with 403 -- this
+      permission check fires as soon as overwrite=True is set, even if path
+      does not exist yet.
+    - base_revision=<n>: strict optimistic-concurrency write, same
+      semantics as the bidirectional revision sync API. The write only
+      applies if the server's current revision for path equals n;
+      otherwise it returns 409 SYNC_CONFLICT. base_revision=0 means
+      "create a new file" and requires no special token permission.
 
     Save workflow: sync_file → reindex_vault.
     """
@@ -93,6 +104,7 @@ def _vault_service(
         VaultStorage(settings.vault_storage_root, settings.vault_archive_root),
         archived_by=metadata.token_id,
         settings=settings,
+        allow_overwrite=metadata.allow_overwrite,
     )
 
 

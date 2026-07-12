@@ -31,6 +31,7 @@ async def create_token(
         name=body.name,
         token_hash=token_hash,
         expires_at=body.expires_at,
+        allow_overwrite=body.allow_overwrite,
     )
     return ok(
         TokenCreatedData(
@@ -38,6 +39,7 @@ async def create_token(
             name=db_token.name,
             token=raw_token,
             expires_at=db_token.expires_at,
+            allow_overwrite=db_token.allow_overwrite,
             created_at=db_token.created_at,
         )
     )
@@ -55,6 +57,7 @@ async def list_tokens(db: DbSessionDependency) -> ResponseEnvelope[TokenListData
                     is_active=t.is_active,
                     expires_at=t.expires_at,
                     last_used_at=t.last_used_at,
+                    allow_overwrite=t.allow_overwrite,
                     created_at=t.created_at,
                 )
                 for t in tokens

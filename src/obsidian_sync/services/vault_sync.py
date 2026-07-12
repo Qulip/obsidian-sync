@@ -1,5 +1,6 @@
+import logging
 import re
-from typing import NoReturn
+from typing import Literal, NoReturn
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,7 @@ from obsidian_sync.domain.hashing import sha256_bytes
 from obsidian_sync.domain.paths import normalize_source_path
 from obsidian_sync.repositories.vaults import VaultRepository
 from obsidian_sync.schemas.mcp import McpSyncFileRequest
+from obsidian_sync.schemas.sync import PutFileRequest
 from obsidian_sync.schemas.vaults import (
     CreateVaultData,
     CreateVaultRequest,
@@ -25,6 +27,15 @@ from obsidian_sync.services.storage import VaultStorage
 
 _VAULT_ID_PATTERN = re.compile(r'^[a-z0-9-]+$')
 
+_LOGGER = logging.getLogger(__name__)
+
+# Origins recorded on `sync_events.origin` for writes made through the MCP
+# one-way sync tool, so overwrite=True forced replacements are auditable
+# separately from ordinary uploads. Writes through the bidirectional
+# (base_revision) revision sync API keep `origin=None`, unchanged.
+_ORIGIN_MCP = 'mcp'
+_ORIGIN_MCP_OVERWRITE = 'mcp_overwrite'
+
 
 class VaultSyncService:
     def __init__(
@@ -34,12 +45,14 @@ class VaultSyncService:
         *,
         archived_by: str,
         settings: Settings,
+        allow_overwrite: bool = False,
     ) -> None:
         self._session = session
         self._repo = VaultRepository(session)
         self._storage = storage
         self._archived_by = archived_by
         self._settings = settings
+        self._allow_overwrite = allow_overwrite
 
     async def create_vault(self, request: CreateVaultRequest) -> CreateVaultData:
         vault_id = _normalize_vault_id(request.vault_id)
@@ -80,12 +93,34 @@ class VaultSyncService:
         Fails closed: if `path` already exists with different content, this
         raises a 409 CONFLICT_DETECTED error instead of silently overwriting
         it. Pass `request.overwrite=True` to intentionally replace the
-        existing content. Either way, once a write is decided, it delegates
-        to `RevisionSyncService` so the vault revision is bumped, a
+        existing content -- this requires a token with overwrite permission
+        (`allow_overwrite`), or the call fails with 403 FORBIDDEN. Pass
+        `request.base_revision` instead to use strict optimistic-concurrency
+        writes (same semantics as the bidirectional sync API) without
+        needing that permission. The two options are mutually exclusive.
+
+        Either way, once a write is decided, it delegates to
+        `RevisionSyncService` so the vault revision is bumped, a
         `sync_events` row is recorded, and version history is kept -- the
         same invariants the bidirectional (`base_revision`) sync API
         guarantees, so those clients observe the change on their next pull.
         """
+        if request.base_revision is not None and request.overwrite:
+            _raise_validation(
+                'base_revision and overwrite are mutually exclusive; use '
+                'base_revision for an optimistic-concurrency write or '
+                'overwrite=True for a forced replace, not both'
+            )
+        if request.overwrite and not self._allow_overwrite:
+            raise AppError(
+                ErrorCode.FORBIDDEN,
+                'This token is not permitted to overwrite existing files. '
+                'Use base_revision for an optimistic-concurrency write, or '
+                'request a token with overwrite permission.',
+                status_code=403,
+                details={'vault_id': vault_id, 'path': request.path},
+            )
+
         normalized_vault_id = _normalize_vault_id(vault_id)
         await self._require_vault(normalized_vault_id)
         source_path = _normalize_source_path(request.path)
@@ -94,6 +129,15 @@ class VaultSyncService:
 
         _validate_markdown_file(source_path, size)
         content_hash = sha256_bytes(content_bytes)
+
+        if request.base_revision is not None:
+            return await self._force_sync_file_optimistic(
+                normalized_vault_id,
+                source_path,
+                base_revision=request.base_revision,
+                content=request.content,
+                content_hash=content_hash,
+            )
 
         existing = await self._repo.get_file(normalized_vault_id, source_path)
         if existing is not None and not existing.deleted:
@@ -113,6 +157,17 @@ class VaultSyncService:
                     [{'path': source_path, 'reason': 'file_exists_content_differs'}]
                 )
 
+        is_overwrite = existing is not None and not existing.deleted
+        # Capture scalar copies of the pre-overwrite revision/hash now.
+        # `force_put_file` below re-fetches this same row on `self._session`
+        # via `get_file_for_update` and mutates it in place; SQLAlchemy's
+        # per-Session identity map would hand back the identical Python
+        # object, so reading `existing.revision`/`existing.content_hash`
+        # *after* the call would observe the already-mutated new values
+        # instead of the previous ones.
+        previous_revision = existing.revision if existing is not None else None
+        previous_content_hash = existing.content_hash if existing is not None else None
+
         revision_service = RevisionSyncService(
             self._session,
             self._storage,
@@ -123,12 +178,71 @@ class VaultSyncService:
             source_path,
             content=request.content,
             device_id=self._archived_by,
+            origin=_ORIGIN_MCP_OVERWRITE if is_overwrite else _ORIGIN_MCP,
         )
+        if is_overwrite:
+            assert previous_revision is not None
+            assert previous_content_hash is not None
+            _log_overwrite_audit(
+                vault_id=normalized_vault_id,
+                source_path=source_path,
+                token_id=self._archived_by,
+                previous_revision=previous_revision,
+                previous_content_hash=previous_content_hash,
+                new_revision=result.revision,
+                new_content_hash=result.content_hash,
+            )
         return SyncFileData(
             path=result.path,
             status='uploaded',
             hash=result.content_hash,
         )
+
+    async def _force_sync_file_optimistic(
+        self,
+        vault_id: str,
+        source_path: str,
+        *,
+        base_revision: int,
+        content: str,
+        content_hash: str,
+    ) -> SyncFileData:
+        """Strict optimistic-concurrency write, reusing the revision API.
+
+        Delegates to `RevisionSyncService.put_file` -- the same method the
+        bidirectional (`base_revision`) sync API uses -- so this path gets
+        identical conflict detection/recording (`sync_conflicts`), event
+        logging, and version-history semantics for free instead of
+        duplicating them. `device_id` is set to the MCP token's id since
+        there is no separate device concept on this one-way tool.
+        """
+        row_before = await self._repo.get_file(vault_id, source_path)
+        revision_before = row_before.revision if row_before is not None else 0
+
+        revision_service = RevisionSyncService(
+            self._session,
+            self._storage,
+            self._settings,
+        )
+        result = await revision_service.put_file(
+            vault_id,
+            source_path,
+            PutFileRequest(
+                device_id=self._archived_by,
+                base_revision=base_revision,
+                content_hash=content_hash,
+                content=content,
+                encoding='utf8',
+            ),
+            origin=_ORIGIN_MCP,
+        )
+        # put_file only bumps the revision when it actually records a
+        # CREATE/UPDATE event; an unchanged revision means it was an
+        # idempotent replay (same base_revision, identical content).
+        status: Literal['uploaded', 'skipped'] = (
+            'skipped' if result.revision == revision_before else 'uploaded'
+        )
+        return SyncFileData(path=result.path, status=status, hash=result.content_hash)
 
     async def _require_vault(self, vault_id: str) -> Vault:
         vault = await self._repo.get_vault(vault_id)
@@ -207,6 +321,30 @@ def _raise_conflicts(conflicts: list[dict[str, str]]) -> None:
         'Conflict detected. Manual verification required.',
         status_code=409,
         details={'conflicts': conflicts},
+    )
+
+
+def _log_overwrite_audit(
+    *,
+    vault_id: str,
+    source_path: str,
+    token_id: str,
+    previous_revision: int,
+    previous_content_hash: str,
+    new_revision: int,
+    new_content_hash: str,
+) -> None:
+    _LOGGER.info(
+        'mcp overwrite: vault_id=%s path=%s token_id=%s '
+        'previous_revision=%s previous_content_hash=%s '
+        'new_revision=%s new_content_hash=%s',
+        vault_id,
+        source_path,
+        token_id,
+        previous_revision,
+        previous_content_hash,
+        new_revision,
+        new_content_hash,
     )
 
 

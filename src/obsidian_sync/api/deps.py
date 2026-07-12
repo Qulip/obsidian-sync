@@ -13,6 +13,7 @@ class RequestMetadata(BaseModel):
     client_ip: str | None
     user_agent: str | None
     token_id: str
+    allow_overwrite: bool = False
 
 
 SettingsDependency = Annotated[Settings, Depends(get_settings)]
@@ -28,6 +29,7 @@ def get_request_metadata(
         client_ip=request.client.host if request.client else None,
         user_agent=request.headers.get('user-agent'),
         token_id=auth.token_id,
+        allow_overwrite=auth.allow_overwrite,
     )
 
 

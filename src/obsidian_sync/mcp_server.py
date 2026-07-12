@@ -61,7 +61,17 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         """Upload markdown content to a personal knowledge base.
 
         Fails closed with a 409 conflict if `path` already exists with
-        different content; pass `overwrite=True` to explicitly replace it.
+        different content. Two opt-in ways to write anyway, mutually
+        exclusive (400 if both are set):
+        - `overwrite=True`: force-replace the existing content. Requires a
+          token with overwrite permission, or the call fails with 403 --
+          this permission check fires as soon as `overwrite=True` is set,
+          even if `path` does not exist yet.
+        - `base_revision=<n>`: strict optimistic-concurrency write, same
+          semantics as the revision sync API. The write only applies if the
+          server's current revision for `path` equals `n`; otherwise it
+          returns 409 SYNC_CONFLICT. `base_revision=0` means "create a new
+          file" and requires no special token permission.
         """
         async with _session(app) as session:
             settings = _settings(app)
@@ -214,6 +224,7 @@ async def _metadata(
         client_ip=request.client.host if request.client else None,
         user_agent=request.headers.get('user-agent'),
         token_id=auth.token_id,
+        allow_overwrite=auth.allow_overwrite,
     )
 
 
@@ -252,6 +263,7 @@ def _vault_service(
         VaultStorage(settings.vault_storage_root, settings.vault_archive_root),
         archived_by=metadata.token_id,
         settings=settings,
+        allow_overwrite=metadata.allow_overwrite,
     )
 
 

@@ -33,8 +33,14 @@ class TokenRepository:
         name: str,
         token_hash: str,
         expires_at: datetime | None,
+        allow_overwrite: bool = False,
     ) -> ApiToken:
-        token = ApiToken(name=name, token_hash=token_hash, expires_at=expires_at)
+        token = ApiToken(
+            name=name,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            allow_overwrite=allow_overwrite,
+        )
         self._session.add(token)
         await self._session.flush()
         await self._session.refresh(token)

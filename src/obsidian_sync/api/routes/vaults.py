@@ -134,4 +134,5 @@ def _vault_service(
         VaultStorage(settings.vault_storage_root, settings.vault_archive_root),
         archived_by=metadata.token_id,
         settings=settings,
+        allow_overwrite=metadata.allow_overwrite,
     )

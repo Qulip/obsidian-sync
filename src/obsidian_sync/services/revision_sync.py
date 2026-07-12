@@ -167,6 +167,8 @@ class RevisionSyncService:
         vault_id: str,
         file_path: str,
         request: PutFileRequest,
+        *,
+        origin: str | None = None,
     ) -> PutFileData:
         vault = await self._require_vault(vault_id)
         source_path = _normalize_path(file_path)
@@ -202,6 +204,7 @@ class RevisionSyncService:
             event_type=event_type,
             device_id=request.device_id,
             policy=policy,
+            origin=origin,
         )
 
     async def force_put_file(
@@ -211,6 +214,7 @@ class RevisionSyncService:
         *,
         content: str,
         device_id: str,
+        origin: str | None = None,
     ) -> PutFileData:
         """Write content unconditionally, still recorded as a revision.
 
@@ -253,6 +257,7 @@ class RevisionSyncService:
             event_type=event_type,
             device_id=device_id,
             policy=policy,
+            origin=origin,
         )
 
     async def _write_revision(
@@ -266,6 +271,7 @@ class RevisionSyncService:
         event_type: SyncEventType,
         device_id: str | None,
         policy: FilePolicy,
+        origin: str | None = None,
     ) -> PutFileData:
         """Bump the vault revision and persist content + event (+ version).
 
@@ -337,6 +343,7 @@ class RevisionSyncService:
             content_hash=content_hash,
             deleted=False,
             device_id=device_id,
+            origin=origin,
         )
 
         staged = self._storage.stage_replace(

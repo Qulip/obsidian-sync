@@ -142,8 +142,13 @@ def api_token(clean_db: None) -> str:
     async def insert() -> None:
         conn = await asyncpg.connect(dsn=_TEST_DSN)
         try:
+            # allow_overwrite=true: this shared fixture token backs broad
+            # API test coverage, including MCP overwrite=True scenarios in
+            # test_mcp_vault_sync.py. Token-scoped permission denial has its
+            # own dedicated coverage rather than being exercised here.
             await conn.execute(
-                'INSERT INTO obsidian.api_tokens (name, token_hash) VALUES ($1, $2)',
+                'INSERT INTO obsidian.api_tokens '
+                '(name, token_hash, allow_overwrite) VALUES ($1, $2, true)',
                 'test-token',
                 _hash_token(raw),
             )

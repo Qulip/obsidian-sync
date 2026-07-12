@@ -146,6 +146,7 @@ class SyncRepository:
         content_hash: str | None,
         deleted: bool,
         device_id: str | None,
+        origin: str | None = None,
     ) -> SyncEvent:
         event = SyncEvent(
             vault_pk=vault.id,
@@ -156,6 +157,7 @@ class SyncRepository:
             content_hash=content_hash,
             deleted=deleted,
             created_by_device_id=device_id,
+            origin=origin,
         )
         self._session.add(event)
         return event

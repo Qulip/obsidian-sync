@@ -842,11 +842,3 @@ def test_existing_endpoints_still_respond(
     listing = app_client.get('/vaults', headers=auth_headers)
     assert listing.status_code == 200
     assert any(v['vault_id'] == vault_id for v in listing.json()['data']['vaults'])
-
-    manifest = app_client.post(
-        f'/vaults/{vault_id}/sync/manifest',
-        json={'files': []},
-        headers=auth_headers,
-    )
-    assert manifest.status_code == 200
-    assert manifest.json()['success'] is True

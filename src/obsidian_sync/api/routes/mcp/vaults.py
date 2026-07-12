@@ -10,12 +10,7 @@ from obsidian_sync.core.responses import ResponseEnvelope, ok
 from obsidian_sync.repositories.indexing import IndexingRepository
 from obsidian_sync.schemas.indexing import ReindexResult, ReindexVaultRequest
 from obsidian_sync.schemas.mcp import McpSyncFileRequest
-from obsidian_sync.schemas.vaults import (
-    ListVaultsData,
-    SyncFileData,
-    SyncManifestData,
-    SyncManifestRequest,
-)
+from obsidian_sync.schemas.vaults import ListVaultsData, SyncFileData
 from obsidian_sync.services.indexing import ReindexService
 from obsidian_sync.services.storage import VaultStorage
 from obsidian_sync.services.vault_sync import VaultSyncService
@@ -41,29 +36,6 @@ async def list_vaults(
 
 
 @router.post(
-    '/{vault_id}/sync/manifest',
-    response_model=ResponseEnvelope[SyncManifestData],
-)
-async def sync_manifest(
-    vault_id: str,
-    payload: SyncManifestRequest,
-    session: DbSessionDependency,
-    settings: SettingsDependency,
-    metadata: RequestMetadataDependency,
-) -> ResponseEnvelope[SyncManifestData]:
-    """Step 1 of saving a note: declare files to upload.
-
-    Compares file hashes against existing records and returns only the paths
-    that actually need uploading (skips unchanged files). Always call this
-    before sync_file to avoid redundant uploads.
-
-    Save workflow: sync_manifest → sync_file → reindex_vault.
-    """
-    service = _vault_service(session=session, settings=settings, metadata=metadata)
-    return ok(await service.sync_manifest(vault_id, payload))
-
-
-@router.post(
     '/{vault_id}/sync/file',
     response_model=ResponseEnvelope[SyncFileData],
 )
@@ -74,7 +46,7 @@ async def sync_file(
     settings: SettingsDependency,
     metadata: RequestMetadataDependency,
 ) -> ResponseEnvelope[SyncFileData]:
-    """Step 2 of saving a note: upload markdown content.
+    """Step 1 of saving a note: upload markdown content.
 
     Writes the note content to the personal knowledge base. Fails closed: if
     path already exists with different content, this returns a 409 conflict
@@ -82,7 +54,7 @@ async def sync_file(
     replace it. Content must be valid markdown; frontmatter (title, tags,
     date) should be included at the top.
 
-    Save workflow: sync_manifest → sync_file → reindex_vault.
+    Save workflow: sync_file → reindex_vault.
     """
     service = _vault_service(session=session, settings=settings, metadata=metadata)
     return ok(await service.force_sync_file(vault_id, payload))
@@ -98,13 +70,13 @@ async def reindex_vault(
     session: DbSessionDependency,
     settings: SettingsDependency,
 ) -> ResponseEnvelope[ReindexResult]:
-    """Step 3 of saving a note: make the new content searchable.
+    """Step 2 of saving a note: make the new content searchable.
 
     Re-embeds uploaded files so they appear in future search_knowledge results.
     Use mode='changed_only' after saving a note (faster). Use mode='full' only
     when repairing a broken index.
 
-    Save workflow: sync_manifest → sync_file → reindex_vault.
+    Save workflow: sync_file → reindex_vault.
     """
     service = _reindex_service(session=session, settings=settings)
     return ok(await service.reindex_vault(vault_id=vault_id, mode=payload.mode))

@@ -49,6 +49,11 @@ MCP tool이 있으면 `sync_file_mcp_vaults__vault_id__sync_file_post`를 호출
 로 호출한다. Ollama나 embedding 서비스가 준비되지 않은 경우 reindex 실패는 저장
 실패로 취급하지 않는다.
 
+이 저장 호출은 fail-closed다: 같은 경로에 내용이 다른 노트가 이미 있으면
+409 CONFLICT_DETECTED를 반환하고 덮어쓰지 않는다. 의도적으로 교체하려면
+`overwrite: true`를 함께 보낸다. 내용이 동일하면 `overwrite` 값과 무관하게
+`status: "skipped"`로 no-op 처리된다.
+
 MCP tool을 사용할 수 없을 때만 fallback 스크립트를 사용한다:
 
 ```bash
@@ -61,6 +66,9 @@ python <skill-dir>/scripts/save_knowledge.py \
   --tags "python,fastapi" \
   --project "<현재 프로젝트명>"
 ```
+
+같은 경로에 내용이 다른 노트가 이미 있으면 스크립트는 409 오류 메시지를 출력하고
+exit code 1로 종료한다. 의도적으로 교체하려면 `--overwrite` 플래그를 추가한다.
 
 ## 노트 작성 원칙
 

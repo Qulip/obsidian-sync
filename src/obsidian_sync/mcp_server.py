@@ -24,12 +24,7 @@ from obsidian_sync.schemas.sync import (
     McpGetNoteRequest,
     McpSyncStatusData,
 )
-from obsidian_sync.schemas.vaults import (
-    ListVaultsData,
-    SyncFileData,
-    SyncManifestData,
-    SyncManifestRequest,
-)
+from obsidian_sync.schemas.vaults import ListVaultsData, SyncFileData
 from obsidian_sync.services.indexing import ReindexService
 from obsidian_sync.services.revision_sync import RevisionSyncService
 from obsidian_sync.services.search import KnowledgeSearchService
@@ -56,23 +51,6 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
                 metadata=metadata,
             )
             return _dump(ok(await service.list_vaults()))
-
-    @mcp.tool(name='sync_manifest_mcp_vaults__vault_id__sync_manifest_post')
-    async def sync_manifest(
-        vault_id: str,
-        payload: SyncManifestRequest,
-        ctx: Context[Any, Any, Request],
-    ) -> dict[str, Any]:
-        """Declare files to upload and return only paths that changed."""
-        async with _session(app) as session:
-            settings = _settings(app)
-            metadata = await _metadata(ctx, session)
-            service = _vault_service(
-                session=session,
-                settings=settings,
-                metadata=metadata,
-            )
-            return _dump(ok(await service.sync_manifest(vault_id, payload)))
 
     @mcp.tool(name='sync_file_mcp_vaults__vault_id__sync_file_post')
     async def sync_file(
@@ -308,7 +286,6 @@ def _reindex_service(
 def _dump(
     response: ResponseEnvelope[
         ListVaultsData
-        | SyncManifestData
         | SyncFileData
         | ReindexResult
         | KnowledgeSearchResponse

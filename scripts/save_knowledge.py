@@ -15,6 +15,14 @@ Content options (mutually exclusive):
   --content-file path/to/note.md
   --content-file -                   (read from stdin)
 
+Save behavior: uploads through the MCP one-way sync endpoint
+(POST /mcp/vaults/{vault_id}/sync/file). This call is fail-closed by
+default -- if a note already exists at the resolved path with different
+content, the server returns 409 CONFLICT_DETECTED instead of silently
+overwriting it. Pass --overwrite to replace the existing note
+intentionally. Saving identical content is always a no-op (status
+"skipped"), regardless of --overwrite.
+
 Requires only Python 3 standard library — no uv, pip, or extra packages needed.
 """
 
@@ -64,6 +72,15 @@ def main() -> int:
     parser.add_argument(
         '--no-reindex', action='store_true', help='Skip reindex request after upload'
     )
+    parser.add_argument(
+        '--overwrite',
+        action='store_true',
+        help=(
+            'Replace an existing note that has different content at the '
+            'resolved path. Without this flag, saving over an existing note '
+            'with different content fails with a 409 conflict.'
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -82,44 +99,40 @@ def _save(server_url: str, args: argparse.Namespace) -> int:
     project: str | None = args.project
 
     full_content = _build_markdown(args.title, tags, project, body)
-    content_bytes = full_content.encode('utf-8')
-    content_hash = hashlib.sha256(content_bytes).hexdigest()
-    size = len(content_bytes)
+    content_hash = hashlib.sha256(full_content.encode('utf-8')).hexdigest()
 
-    # Step 1: declare what we intend to upload
-    manifest_data = _post(
-        server_url,
-        args.token,
-        f'/vaults/{args.vault_id}/sync/manifest',
-        {'files': [{'path': note_path, 'hash': content_hash, 'size': size}]},
-    )
+    try:
+        upload_data = _post(
+            server_url,
+            args.token,
+            f'/mcp/vaults/{args.vault_id}/sync/file',
+            {
+                'path': note_path,
+                'content': full_content,
+                'mime_type': 'text/markdown',
+                'overwrite': args.overwrite,
+            },
+        )
+    except RuntimeError as exc:
+        if '(HTTP 409)' in str(exc) and not args.overwrite:
+            print(
+                f'ERROR: a note already exists at {note_path} with different '
+                'content. Re-run with --overwrite to replace it.',
+                file=sys.stderr,
+            )
+            return 1
+        raise
 
-    need_upload = manifest_data.get('need_upload')
-    if not isinstance(need_upload, list) or note_path not in need_upload:
-        _print({'status': 'skipped', 'path': note_path, 'reason': 'unchanged'})
-        return 0
+    status = upload_data.get('status', 'uploaded')
 
-    # Step 2: upload file content
-    upload_data = _post(
-        server_url,
-        args.token,
-        f'/vaults/{args.vault_id}/sync/files',
-        {
-            'path': note_path,
-            'hash': content_hash,
-            'content': full_content,
-            'size': size,
-            'mime_type': 'text/markdown',
-        },
-    )
-
-    # Step 3: reindex (non-fatal — Ollama may not be running)
-    if not args.no_reindex:
+    # Reindex (non-fatal — Ollama may not be running). Skipped when the
+    # content was unchanged since there is nothing new to embed.
+    if not args.no_reindex and status != 'skipped':
         try:
             _post(
                 server_url,
                 args.token,
-                f'/vaults/{args.vault_id}/reindex',
+                f'/mcp/vaults/{args.vault_id}/reindex',
                 {'mode': 'changed_only'},
             )
         except RuntimeError:
@@ -127,7 +140,7 @@ def _save(server_url: str, args: argparse.Namespace) -> int:
 
     _print(
         {
-            'status': upload_data.get('status', 'uploaded'),
+            'status': status,
             'vault_id': args.vault_id,
             'path': note_path,
             'hash': content_hash,

@@ -496,3 +496,99 @@ embed query
 - 검색 품질을 회귀 없이 관리해야 한다.
 
 최우선은 **stale chunk 차단**과 **검색 품질 평가셋 구축**이다. 그 다음 hybrid search, threshold, rerank를 단계적으로 넣는 것이 가장 효율적이다.
+
+---
+
+## 7. 후속 코드 재검증 (2026-07-12)
+
+### 7.1 재검증 결론
+
+기존 분석에서 제시한 P0/P1 개선안은 대부분 현재 코드에 올바르게 반영됐다. 특히 MCP가 오래된 chunk를 최신 문서처럼 인용하던 가장 큰 위험은 해소됐다. 다만 현재 상태를 “MCP가 자동으로 답변 근거를 확정해도 충분히 정확하다”라고 평가할 수는 없다. 실제 vault 기반 golden set의 측정값이 없고, 일부 응답 상태와 ranking 의미가 MCP 소비자에게 오해를 줄 수 있기 때문이다.
+
+현재 구현은 개인 지식 저장소에서 **후보를 찾고 원문을 확인하는 retrieval layer**로는 역할에 잘 맞는다. 반대로 검색 결과만으로 사실을 단정하는 answer engine으로 사용하려면 아래 P1 항목을 보완하고 실제 corpus로 품질 기준을 정해야 한다.
+
+### 7.2 기존 권고의 반영 여부
+
+| 기존 권고 | 구현 상태 | 코드 확인 결과 |
+| --- | --- | --- |
+| stale chunk 차단 | 반영 완료 | `SearchRepository.search_chunks()`와 lexical 쿼리는 `vault_files`를 `vault_id`, `source_path`, `content_hash`로 join하고 `vf.deleted = false`, `vf.index_status = 'indexed'`를 강제한다. 수정 후 재색인 전의 기존 chunk는 반환되지 않는다. |
+| 검색 신선도 표기 | 부분 반영 | 응답에 `pending_vectorizing_jobs`, `index_fresh`가 있고 MCP tool 설명도 재색인을 안내한다. 다만 `failed` 파일은 집계하지 않아 아래 7.3의 문제가 남는다. |
+| hybrid search | 반영 완료 | 기본 활성화(`search_hybrid_enabled=True`)이며 기본 후보 한도 50개로 pgvector와 PostgreSQL FTS 후보를 각각 수집해 RRF로 합친다. FTS는 GIN index를 가진 `title + content` `tsvector`를 사용하고, 두 경로에 같은 metadata filter를 적용한다. |
+| score threshold/no-result | 부분 반영 | `min_score` 검증·응답·threshold로 모두 제거된 경우의 `low_confidence`가 구현됐다. 기본값은 `0.0`이므로 운영 환경에서 별도 설정/요청이 없으면 threshold는 적용되지 않는다. 무후보 처리도 보완이 필요하다. |
+| optional rerank | 반영 완료 | 기본 비활성화이며 설정된 LLM이 상위 후보를 listwise rerank한다. 호출/파싱 실패 시 원래 RRF 순서로 안전하게 복귀한다. |
+| chunking 개선 | 반영 완료 | H1-H6 heading path, 긴 paragraph의 강제 분할, 병합 section의 공통 heading path가 구현됐다. 단, token 수는 여전히 모델 tokenizer가 아닌 정규식 추정치다. |
+| 평가·피드백 기반 | 기반만 반영 | deterministic ranking 회귀 테스트, local evaluation harness, feedback endpoint는 추가됐다. 커밋된 golden query는 형식 예시 3건뿐이라 실제 정확도 지표는 아직 없다. |
+
+### 7.3 확인된 잔여 정확도/운영 리스크
+
+#### P1. `index_fresh`가 실패한 인덱싱을 fresh로 표시할 수 있음
+
+`count_pending_reindex()`는 `index_status='pending'`만 센다. 반면 `ReindexService`는 frontmatter/embedding/read 실패 시 상태를 `failed`로 바꾸며, 검색 SQL은 `indexed` 파일만 반환한다. 따라서 pending이 0이고 failed 파일이 있는 vault는 `index_fresh=true`로 응답하지만, 해당 파일은 검색 결과에서 빠진 불완전한 index다.
+
+이는 stale content를 노출하지 않는다는 점에서는 올바르지만, MCP가 “complete/fresh”로 해석하면 안 된다. `failed_vectorizing_jobs`를 별도로 반환하거나, `index_fresh`를 `pending == 0 and failed == 0`으로 계산하고 실패 경로를 `answer_context`에 명시하는 것이 적절하다. 이 상태를 다루는 회귀 테스트도 필요하다.
+
+#### P1. 후보가 전혀 없을 때 응답 안내가 실제 결과와 모순됨
+
+`low_confidence`는 “후보는 있었지만 min_score가 모두 제거된 경우”에만 `true`다. vector/lexical 후보가 모두 없으면 `results=[]`, `low_confidence=false`가 되고, pending도 없을 때 `answer_context`는 “matching chunks”를 반환했다고 안내한다. 이는 MCP가 근거 없음과 정상 매칭을 구별하는 데 부정확하다.
+
+`results`가 비어 있으면 원인과 무관하게 “supporting evidence 없음”을 반환하고, threshold로 제거됐는지/애초 후보가 없었는지는 별도 필드(예: `no_candidates`)로 구분하는 편이 안전하다.
+
+#### P1. RRF 순위와 반환 `score`의 의미가 다르고, threshold가 lexical recall을 제거할 수 있음
+
+hybrid 모드의 최종 순위는 RRF지만 응답의 `score`는 cosine similarity다. 따라서 1위 결과의 score가 2위보다 낮을 수 있으며, 이 값으로 RRF 최종 관련도를 해석하면 안 된다. 현재 코드 주석에는 이 사실이 명시돼 있으나 MCP 응답 schema/tool 설명에는 ranking score의 의미가 드러나지 않는다.
+
+더 중요한 점은 `min_score`가 RRF 이전의 vector score 기준으로 적용된다는 것이다. 정확한 함수명·오류 메시지처럼 FTS에서만 강하게 잡힌 문서는 cosine score가 낮아 threshold에서 제거될 수 있다. 기본 threshold가 꺼져 있을 때는 문제가 없지만, no-result 정확도를 높이기 위해 threshold를 활성화할 때는 lexical match가 있는 결과의 정책을 따로 정해야 한다. 예를 들어 vector-only 후보에만 threshold를 적용하거나, RRF/lexical 신호를 포함한 별도 confidence를 계산해야 한다.
+
+#### P1. 임베딩 모델 교체 시 혼합 embedding을 방지하지 않음
+
+chunk에는 `embedding_model`이 저장되지만 검색 조건은 이를 사용하지 않는다. 또한 `changed_only` 재색인은 파일 변경 상태만 보므로 설정의 embedding model을 바꿔도 기존 indexed 파일은 자동 재임베딩되지 않는다. 모델을 교체한 뒤 full reindex가 진행되는 동안에는 새 query embedding과 이전 모델 chunk embedding이 같은 검색 공간에서 비교될 수 있다.
+
+모델 교체는 vault 단위의 index version/model metadata를 변경하고, full reindex가 끝날 때까지 검색을 막거나 `index_fresh=false`로 표시해야 한다. 최소한 MCP 운영 절차에 “embedding model 변경 후 full reindex 완료 전에는 검색 결과를 신뢰하지 말 것”을 추가해야 한다.
+
+#### P2. lexical 후보의 범위와 결과 다양성은 아직 제한적임
+
+FTS는 `title + content`만 색인한다. `source_path`, tags, project/domain, `agent_hint`는 lexical 대상이 아니므로 파일명·경로·tag 자체를 찾는 exact query는 완전히 보장되지 않는다. 또한 같은 문서의 인접/overlap chunk를 억제하는 MMR 또는 per-source cap이 없어 top_k가 한 파일에 편중될 수 있다.
+
+코드 identifier가 본문에 있는 일반적인 경우에는 hybrid search가 유효하지만, 경로/메타데이터 중심 질의와 여러 근거를 요구하는 MCP 답변에는 exact boost 및 source diversity가 다음 개선 대상으로 적합하다.
+
+#### P2. rerank는 안전하지만 기본 품질 향상으로 검증되지는 않음
+
+rerank는 기본 비활성화이고, 활성화해도 앞선 후보 15개에 대해 각 chunk 앞 500자와 heading/path만 사용한다. 긴 chunk의 핵심 내용이 preview 뒤에 있거나 LLM이 순서를 잘못 판단할 수 있다. 실패 시 fallback하는 설계는 적절하지만, 실제 golden set에서 rerank on/off의 Recall@K·MRR·latency를 비교한 뒤에만 기본 활성화를 검토해야 한다.
+
+### 7.4 MCP 역할에 맞는 사용 판단
+
+`search_knowledge`의 현재 역할은 “개인 노트의 최신 indexed 후보를 hybrid retrieval로 제시”하는 것으로 한정하면 적절하게 구현돼 있다. MCP tool 설명에는 pending 재색인 안내, `request_id`, feedback workflow, optional rerank 여부가 포함되어 있어 agent가 상태를 인식하고 후속 행동을 취할 수 있다.
+
+다만 최종 답변의 근거 확인까지 보장하지는 않는다. 중요하거나 변경 가능성이 높은 답변에서는 다음 순서를 계속 지켜야 한다.
+
+1. `search_knowledge`에서 후보와 `index_fresh`/`low_confidence`를 확인한다.
+2. `index_fresh=false` 또는 향후 failed count가 양수면 `reindex_vault(mode=changed_only)`의 결과를 확인한다.
+3. 상위 결과의 `source_path`, `heading_path`로 `get_note`를 호출해 최신 원문과 revision을 확인한다.
+4. 무후보·low confidence·exact identifier 질의는 “근거를 찾지 못했다”로 처리하거나 필터/질의를 조정한다.
+
+### 7.5 정확성 검증 현황과 다음 우선순위
+
+정적 검증으로 `uv run ruff check .` 및 `uv run mypy`는 통과했다. 검색·chunking 회귀 테스트는 현재 환경에 `.env`의 데이터베이스 URL이 없어 `tests/conftest.py` 초기화 단계에서 실행되지 못했다. 이 테스트들은 실제 PostgreSQL을 요구하며 Ollama embedding은 mock 처리한다. 따라서 이번 재검증에서는 테스트 통과를 주장하지 않고, 코드·테스트·migration을 정적으로 대조했다.
+
+정확도가 충분한지는 실제 vault에서만 판정할 수 있다. 현재 `docs/eval/golden-queries.yaml`은 placeholder이므로, 아래 순서가 가장 효과적이다.
+
+1. 실제 검색 질문 20~50개(한국어/영어, exact identifier, no-result 포함)로 golden set을 교체한다.
+2. 현재 hybrid/rerank-off 기준 Recall@5, MRR@10, no-result precision, duplicate-source rate를 기록한다.
+3. 7.3의 failed freshness·무후보·model migration 테스트를 추가한다.
+4. threshold 정책과 rerank on/off를 동일 golden set으로 비교해 배포 기준을 수치화한다.
+
+이 네 단계가 완료되기 전의 합리적인 결론은 **구현 방향과 stale 차단은 올바르며 retrieval 후보 품질은 개선됐지만, MCP 답변 정확성의 충분성은 아직 실측으로 검증되지 않았다**는 것이다.
+
+### 7.6 7.3 지적 사항 반영 현황 (2026-07-13)
+
+7.3의 잔여 리스크는 아래와 같이 코드에 반영됐다. 전체 검증: `ruff check`/`mypy` 통과, 실제 PostgreSQL 대상 `pytest` 300건 통과.
+
+| 7.3 항목 | 반영 내용 |
+| --- | --- |
+| failed 인덱싱과 index_fresh | `failed_vectorizing_jobs` 집계 추가, `index_fresh = pending==0 and failed==0 and model_stale==0`, answer_context에 실패 안내 |
+| 무후보 응답 모순 | `no_candidates` 필드로 후보 0건과 threshold 전부 제거를 구분, `results=[]`이면 원인 무관 no-evidence 안내 |
+| RRF/score 의미와 lexical threshold | 결과별 `matched_by`(vector/lexical/both) 노출, `min_score`는 vector-only 후보에만 적용, score=cosine·순위=RRF임을 schema/MCP 설명에 명시 |
+| embedding model 혼합 | 검색 SQL에 `kc.embedding_model = 현재 설정 모델` 조건 추가, `model_stale_jobs` 집계 및 full reindex 안내 |
+| lexical 범위·다양성 | `content_tsv`에 source_path(구분자 공백화)·tags(IMMUTABLE 래퍼) 포함 재정의(migration 0008), `search_per_source_limit`(기본 2) per-source cap |
+
+남은 항목은 7.5의 실측 단계(실제 golden set 교체와 지표 기록)와 rerank on/off 비교이며, 이는 실제 vault 데이터가 필요하다.

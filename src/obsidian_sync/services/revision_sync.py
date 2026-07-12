@@ -1,3 +1,5 @@
+import base64
+import binascii
 import logging
 from typing import Literal, NoReturn
 
@@ -9,11 +11,18 @@ from obsidian_sync.core.config import Settings
 from obsidian_sync.core.exceptions import AppError, ErrorCode
 from obsidian_sync.db.models import Vault, VaultFile
 from obsidian_sync.domain.errors import DomainValidationError
-from obsidian_sync.domain.hashing import sha256_text, verify_sha256
+from obsidian_sync.domain.files import (
+    FileKind,
+    FilePolicy,
+    classify_file,
+    mime_type_for,
+)
+from obsidian_sync.domain.hashing import sha256_bytes, verify_sha256
 from obsidian_sync.domain.paths import normalize_source_path
 from obsidian_sync.domain.sync_rules import is_ignored_path, is_vectorizable_path
 from obsidian_sync.repositories.sync import SyncRepository
 from obsidian_sync.schemas.sync import (
+    ContentEncoding,
     DeleteFileData,
     DeleteFileRequest,
     FileContentData,
@@ -138,15 +147,18 @@ class RevisionSyncService:
         row = await self._repo.get_file(vault.vault_id, source_path)
         if row is None or row.deleted:
             _raise_file_not_found(vault.vault_id, source_path)
-        content, content_hash = await self._read_verified_file(
-            vault.vault_id, source_path, row
+        policy = self._validate_writable_path(source_path)
+        content_bytes, content_hash = await self._read_verified_file(
+            vault.vault_id, source_path, row, policy
         )
+        content, encoding = _encode_response_content(content_bytes, policy)
         return FileContentData(
             vault_id=vault.vault_id,
             path=source_path,
             revision=row.revision,
             content_hash=content_hash,
             content=content,
+            encoding=encoding,
             deleted=row.deleted,
         )
 
@@ -158,9 +170,9 @@ class RevisionSyncService:
     ) -> PutFileData:
         vault = await self._require_vault(vault_id)
         source_path = _normalize_path(file_path)
-        self._validate_writable_path(source_path)
-        content_bytes = request.content.encode('utf-8')
-        self._validate_content_size(source_path, len(content_bytes))
+        policy = self._validate_writable_path(source_path)
+        content_bytes = _decode_request_content(request)
+        self._validate_content_size(source_path, len(content_bytes), policy)
         content_hash = _verify_hash(content_bytes, request.content_hash)
 
         row = await self._repo.get_file_for_update(vault.vault_id, source_path)
@@ -185,11 +197,11 @@ class RevisionSyncService:
             vault=vault,
             source_path=source_path,
             row=row,
-            content=request.content,
             content_bytes=content_bytes,
             content_hash=content_hash,
             event_type=event_type,
             device_id=request.device_id,
+            policy=policy,
         )
 
     async def force_put_file(
@@ -209,13 +221,17 @@ class RevisionSyncService:
         revision, appends a `sync_events` row, and writes version history
         through the same `_write_revision` path as `put_file`, so
         base_revision clients observe the change on their next pull.
+
+        Text-only (``content: str``): the MCP one-way sync path this backs
+        (`VaultSyncService.force_sync_file`) is markdown-only upstream, so
+        binary attachments never reach this method.
         """
         vault = await self._require_vault(vault_id)
         source_path = _normalize_path(file_path)
-        self._validate_writable_path(source_path)
+        policy = self._validate_writable_path(source_path)
         content_bytes = content.encode('utf-8')
-        self._validate_content_size(source_path, len(content_bytes))
-        content_hash = sha256_text(content)
+        self._validate_content_size(source_path, len(content_bytes), policy)
+        content_hash = sha256_bytes(content_bytes)
 
         row = await self._repo.get_file_for_update(vault.vault_id, source_path)
         if row is not None and not row.deleted and row.content_hash == content_hash:
@@ -232,11 +248,11 @@ class RevisionSyncService:
             vault=vault,
             source_path=source_path,
             row=row,
-            content=content,
             content_bytes=content_bytes,
             content_hash=content_hash,
             event_type=event_type,
             device_id=device_id,
+            policy=policy,
         )
 
     async def _write_revision(
@@ -245,19 +261,29 @@ class RevisionSyncService:
         vault: Vault,
         source_path: str,
         row: VaultFile | None,
-        content: str,
         content_bytes: bytes,
         content_hash: str,
         event_type: SyncEventType,
         device_id: str | None,
+        policy: FilePolicy,
     ) -> PutFileData:
-        """Bump the vault revision and persist content + event + version.
+        """Bump the vault revision and persist content + event (+ version).
 
         Shared by `put_file` and `force_put_file` once each has already
         decided that a CREATE/UPDATE event should be recorded.
+
+        Version history (`vault_file_versions`) is only written for markdown
+        files. Attachments (images/PDFs) can be large and are not
+        text-diffable, so keeping an unbounded full-content version per
+        revision would risk unbounded storage growth for no real benefit;
+        the canonical file on disk is the only copy kept for attachments.
+        This also means `restore_file` cannot restore a deleted/overwritten
+        attachment (no version to restore from) -- an accepted v1 limitation.
         """
         revision = await self._repo.next_revision(vault.id)
         vectorizable = is_vectorizable_path(source_path)
+        mime_type = mime_type_for(policy)
+        file_type = str(policy.kind)
         if row is None:
             self._session.add(
                 VaultFile(
@@ -266,8 +292,8 @@ class RevisionSyncService:
                     source_path=source_path,
                     content_hash=content_hash,
                     size_bytes=len(content_bytes),
-                    mime_type='text/markdown',
-                    file_type='markdown',
+                    mime_type=mime_type,
+                    file_type=file_type,
                     vectorize=vectorizable,
                     status='current',
                     index_status='pending' if vectorizable else 'skipped',
@@ -280,6 +306,8 @@ class RevisionSyncService:
         else:
             row.content_hash = content_hash
             row.size_bytes = len(content_bytes)
+            row.mime_type = mime_type
+            row.file_type = file_type
             row.revision = revision
             row.deleted = False
             row.deleted_at = None
@@ -290,16 +318,17 @@ class RevisionSyncService:
             row.updated_by_device_id = device_id
             row.last_synced_at = func.now()
             row.updated_at = func.now()
-        self._repo.add_version(
-            vault=vault,
-            source_path=source_path,
-            revision=revision,
-            content_hash=content_hash,
-            content=content,
-            size_bytes=len(content_bytes),
-            event_type=event_type,
-            device_id=device_id,
-        )
+        if policy.kind is FileKind.MARKDOWN:
+            self._repo.add_version(
+                vault=vault,
+                source_path=source_path,
+                revision=revision,
+                content_hash=content_hash,
+                content=content_bytes.decode('utf-8'),
+                size_bytes=len(content_bytes),
+                event_type=event_type,
+                device_id=device_id,
+            )
         self._repo.add_event(
             vault=vault,
             revision=revision,
@@ -569,17 +598,19 @@ class RevisionSyncService:
         vault_id: str,
         source_path: str,
         row: VaultFile,
-    ) -> tuple[str, str]:
-        """Return canonical content and its hash, guarding FS/DB split-brain.
+        policy: FilePolicy,
+    ) -> tuple[bytes, str]:
+        """Return canonical content bytes and its hash, guarding FS/DB split-brain.
 
         Disk content is served when it matches the recorded content hash. On
-        mismatch the latest stored version is served instead so callers never
-        receive content inconsistent with a hash; if no version exists the
-        state is unrecoverable and an internal error is raised.
+        mismatch, a markdown file falls back to its latest stored version so
+        callers never receive content inconsistent with a hash. Attachments
+        are never versioned (see `_write_revision`), so a hash mismatch on an
+        attachment has no fallback and is always an internal error.
         """
-        content = self._read_canonical_file(vault_id, source_path)
-        if sha256_text(content) == row.content_hash:
-            return content, row.content_hash
+        content_bytes = self._read_canonical_file(vault_id, source_path)
+        if sha256_bytes(content_bytes) == row.content_hash:
+            return content_bytes, row.content_hash
         _LOGGER.warning(
             'canonical file hash mismatch; falling back to stored version '
             '(vault_id=%s path=%s revision=%s)',
@@ -587,6 +618,14 @@ class RevisionSyncService:
             source_path,
             row.revision,
         )
+        if policy.kind is not FileKind.MARKDOWN:
+            raise AppError(
+                ErrorCode.INTERNAL_ERROR,
+                'Canonical attachment does not match its recorded hash and '
+                'attachments have no stored version to fall back to.',
+                status_code=500,
+                details={'vault_id': vault_id, 'path': source_path},
+            )
         version = await self._repo.get_version(
             vault_id=vault_id,
             source_path=source_path,
@@ -600,12 +639,12 @@ class RevisionSyncService:
                 status_code=500,
                 details={'vault_id': vault_id, 'path': source_path},
             )
-        return version.content, version.content_hash
+        return version.content.encode('utf-8'), version.content_hash
 
-    def _read_canonical_file(self, vault_id: str, source_path: str) -> str:
+    def _read_canonical_file(self, vault_id: str, source_path: str) -> bytes:
         path = self._storage.vault_path(vault_id, source_path)
         try:
-            return path.read_text(encoding='utf-8')
+            return path.read_bytes()
         except OSError as exc:
             raise AppError(
                 ErrorCode.INTERNAL_ERROR,
@@ -614,22 +653,39 @@ class RevisionSyncService:
                 details={'vault_id': vault_id, 'path': source_path},
             ) from exc
 
-    def _validate_writable_path(self, source_path: str) -> None:
+    def _validate_writable_path(self, source_path: str) -> FilePolicy:
         if is_ignored_path(source_path):
             _raise_validation(
                 'source path is inside an ignored directory',
                 {'path': source_path},
             )
-        if not source_path.endswith('.md'):
+        try:
+            return classify_file(source_path)
+        except DomainValidationError as exc:
+            # Fail-closed: any extension outside domain.files' allow-list
+            # (unknown or explicitly excluded) is rejected the same way,
+            # matching the existing "Only Markdown" behavior's status/code
+            # for callers that only inspect the response envelope.
             raise AppError(
                 ErrorCode.UNSUPPORTED_FILE_TYPE,
-                'Only Markdown files are supported by revision sync.',
+                'File type is not supported by revision sync.',
                 status_code=400,
-                details={'path': source_path},
-            )
+                details=exc.details or {'path': source_path},
+            ) from exc
 
-    def _validate_content_size(self, source_path: str, size_bytes: int) -> None:
-        max_bytes = self._settings.sync_max_content_bytes
+    def _validate_content_size(
+        self,
+        source_path: str,
+        size_bytes: int,
+        policy: FilePolicy,
+    ) -> None:
+        # Markdown keeps its existing settings-driven limit unchanged;
+        # attachments use domain.files' per-kind limits (images/PDFs).
+        max_bytes = (
+            self._settings.sync_max_content_bytes
+            if policy.kind is FileKind.MARKDOWN
+            else policy.max_bytes
+        )
         if size_bytes > max_bytes:
             _raise_validation(
                 'content exceeds the maximum allowed size',
@@ -650,6 +706,29 @@ class RevisionSyncService:
                 details={'vault_id': vault_id},
             )
         return vault
+
+
+def _decode_request_content(request: PutFileRequest) -> bytes:
+    if request.encoding != 'base64':
+        return request.content.encode('utf-8')
+    try:
+        return base64.b64decode(request.content, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise AppError(
+            ErrorCode.VALIDATION_ERROR,
+            'content is not valid base64',
+            status_code=400,
+            details={'encoding': request.encoding},
+        ) from exc
+
+
+def _encode_response_content(
+    content_bytes: bytes,
+    policy: FilePolicy,
+) -> tuple[str, ContentEncoding]:
+    if policy.kind is FileKind.MARKDOWN:
+        return content_bytes.decode('utf-8'), 'utf8'
+    return base64.b64encode(content_bytes).decode('ascii'), 'base64'
 
 
 def _normalize_path(raw_path: str) -> str:

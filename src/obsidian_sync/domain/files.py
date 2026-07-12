@@ -90,6 +90,31 @@ def classify_file(source_path: str) -> FilePolicy:
     )
 
 
+_MIME_TYPES_BY_EXTENSION: dict[str, str] = {
+    '.md': 'text/markdown',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.pdf': 'application/pdf',
+}
+
+
+def mime_type_for(policy: FilePolicy) -> str:
+    return _MIME_TYPES_BY_EXTENSION.get(policy.extension, 'application/octet-stream')
+
+
+def base64_encoded_size(raw_bytes: int) -> int:
+    """Upper bound on the base64-encoded length of ``raw_bytes`` raw bytes.
+
+    Used to size request-body limits for endpoints that transport binary
+    attachment content as base64 text inside a JSON payload (base64 inflates
+    length by ~4/3, rounded up to the next 4-byte block).
+    """
+    return -(-raw_bytes // 3) * 4
+
+
 def validate_file_size(source_path: str, size_bytes: int) -> FilePolicy:
     if size_bytes < 0:
         raise DomainValidationError('file size cannot be negative')

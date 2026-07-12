@@ -20,11 +20,20 @@ from obsidian_sync.core.handlers import (
 )
 from obsidian_sync.core.responses import error_response
 from obsidian_sync.db.session import build_async_engine, build_sessionmaker
+from obsidian_sync.domain.files import PDF_MAX_BYTES, base64_encoded_size
 from obsidian_sync.mcp_server import create_mcp_app, create_mcp_server
 
 # Allow the JSON envelope (base64/escaping, device_id, hashes) around the raw
 # content bytes to exceed the content limit without a false rejection.
 _REQUEST_SIZE_OVERHEAD_BYTES = 64 * 1024
+
+# Attachments (images/PDFs) travel base64-encoded inside the same JSON PUT
+# body as markdown content (see services.revision_sync), which inflates the
+# request body to ~4/3 of the raw file size. The largest allowed attachment
+# is a PDF (domain.files.PDF_MAX_BYTES), so the request-size ceiling must
+# cover that even when it exceeds the markdown-oriented
+# `sync_max_content_bytes` setting.
+_MAX_ATTACHMENT_REQUEST_BYTES = base64_encoded_size(PDF_MAX_BYTES)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -55,7 +64,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     max_request_bytes = (
-        resolved_settings.sync_max_content_bytes + _REQUEST_SIZE_OVERHEAD_BYTES
+        max(resolved_settings.sync_max_content_bytes, _MAX_ATTACHMENT_REQUEST_BYTES)
+        + _REQUEST_SIZE_OVERHEAD_BYTES
     )
 
     @app.middleware('http')

@@ -1,6 +1,13 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+# ``utf8`` (default) carries markdown text as-is, preserving the original
+# wire format for existing clients. ``base64`` carries raw attachment bytes
+# (images/PDFs) base64-encoded so the existing JSON envelope can transport
+# binary content without a schema-breaking new endpoint.
+ContentEncoding = Literal['utf8', 'base64']
 
 
 class RegisterDeviceRequest(BaseModel):
@@ -46,6 +53,7 @@ class FileContentData(BaseModel):
     revision: int
     content_hash: str
     content: str
+    encoding: ContentEncoding = 'utf8'
     deleted: bool
 
 
@@ -54,6 +62,7 @@ class PutFileRequest(BaseModel):
     base_revision: int = Field(ge=0)
     content_hash: str
     content: str
+    encoding: ContentEncoding = 'utf8'
 
 
 class PutFileData(BaseModel):

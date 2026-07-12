@@ -1,7 +1,18 @@
 from fnmatch import fnmatchcase
 from pathlib import PurePosixPath
 
-CONFLICT_FILE_PATTERNS = ('*.conflict.*.md', '*.sync-conflict*.md')
+from obsidian_sync.domain.files import ALLOWED_EXTENSIONS
+
+# Conflict/backup filenames keep the original extension (e.g.
+# ``img.conflict.dev.20260707-000000.png``) so the pattern is generated per
+# allowed extension rather than hardcoded to ``.md``. This lets attachment
+# conflict/backup files be recognized and excluded from scanning, pushing,
+# and vectorizing the same way markdown ones always have been.
+CONFLICT_FILE_PATTERNS = tuple(
+    pattern
+    for extension in sorted(ALLOWED_EXTENSIONS)
+    for pattern in (f'*.conflict.*{extension}', f'*.sync-conflict*{extension}')
+)
 IGNORED_DIRECTORIES = ('.obsidian/', '.obsidian-sync-agent/', '.trash/')
 
 _IGNORED_SEGMENTS = frozenset(
@@ -19,8 +30,12 @@ def is_ignored_path(path: str) -> bool:
     return any(segment in _IGNORED_SEGMENTS for segment in segments)
 
 
+def is_markdown_path(path: str) -> bool:
+    return path.endswith('.md')
+
+
 def is_vectorizable_path(path: str) -> bool:
-    if not path.endswith('.md'):
+    if not is_markdown_path(path):
         return False
     if is_conflict_file(path):
         return False

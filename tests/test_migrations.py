@@ -23,6 +23,25 @@ class MigrationTests(TestCase):
         self.assertIn('USING gin (content_tsv)', migration)
         self.assertIn('DROP COLUMN IF EXISTS content_tsv', migration)
 
+    def test_expand_content_tsv_lexical_scope_migration_exists(self) -> None:
+        migration = Path(
+            'alembic/versions/20260713_0008_expand_content_tsv_lexical_scope.py'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('CREATE FUNCTION', migration)
+        self.assertIn('immutable_tags_text', migration)
+        self.assertIn('IMMUTABLE', migration)
+        self.assertIn('array_to_string', migration)
+        self.assertIn('DROP COLUMN IF EXISTS content_tsv', migration)
+        self.assertIn('DROP INDEX IF EXISTS', migration)
+        self.assertIn('USING gin (content_tsv)', migration)
+        self.assertIn("replace(replace(coalesce(source_path, ''), '/', ' ')", migration)
+        self.assertIn('DROP FUNCTION IF EXISTS', migration)
+        self.assertIn(
+            "to_tsvector('simple', coalesce(title, '') || ' ' || content)",
+            migration,
+        )
+
     def test_search_feedback_migration_exists(self) -> None:
         migration = Path(
             'alembic/versions/20260712_0007_add_search_feedback.py'

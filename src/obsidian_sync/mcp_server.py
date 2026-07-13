@@ -111,13 +111,35 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         similarity + PostgreSQL full-text keyword matching, merged via
         Reciprocal Rank Fusion).
 
-        The response includes `pending_vectorizing_jobs` and `index_fresh`.
-        If `pending_vectorizing_jobs > 0` (`index_fresh=False`), some files
-        have not finished indexing yet and results may be stale or
-        incomplete -- call `reindex_vault(mode=changed_only)` and search
-        again once it completes. `min_score` (0.0-1.0) filters out chunks
+        The response includes `pending_vectorizing_jobs`,
+        `failed_vectorizing_jobs`, `model_stale_jobs`, and `index_fresh`.
+        `index_fresh` is False when any count is greater than 0:
+        `pending_vectorizing_jobs` means some files have not finished
+        indexing yet, `failed_vectorizing_jobs` means some files failed
+        indexing and are missing from results entirely, and
+        `model_stale_jobs` means some files were indexed with a previous
+        embedding model configuration and are excluded from results to
+        avoid comparing embeddings from different models in the same
+        search. For pending/failed, call `reindex_vault(mode=changed_only)`
+        and search again once it completes; after an embedding model
+        change, results are incomplete until a full reindex finishes, so
+        call `reindex_vault(mode=full)` instead. `min_score` (0.0-1.0)
+        filters out chunks
         below that cosine-similarity threshold; when the filter removes all
-        candidates, `low_confidence=True` and `results` is empty.
+        candidates, `low_confidence=True` and `results` is empty. When there
+        were no vector or lexical candidates at all (nothing to filter),
+        `no_candidates=True` instead and `results` is also empty. In both
+        cases treat an empty `results` as no supporting evidence for the
+        query -- never assume a match exists just because `results` is
+        empty without checking why.
+
+        Each result's `score` is always cosine similarity, but in hybrid
+        mode the `results` order is RRF-based, not a sort of `score` -- a
+        higher-ranked result can carry a lower `score` than the one after
+        it. `matched_by` ('vector', 'lexical', or 'both') tells you which
+        leg found each result; `min_score` is only enforced against
+        'vector'-only results, since a result also caught by the lexical
+        (keyword) leg is exempt from the cosine threshold.
 
         The response includes `request_id` -- pass it to
         `submit_search_feedback` afterward to record which result (if any)
@@ -127,6 +149,10 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         top candidates are reordered by relevance before `top_k` is
         applied and `reranked=True` is reported; it falls back silently
         to the original ranking on any failure.
+
+        Results are also capped per source_path (default 2) for diversity,
+        so `top_k` is not dominated by adjacent or overlapping chunks from
+        a single note.
         """
         async with _session(app) as session:
             settings = _settings(app)

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     search_rerank_enabled: bool = False
     search_rerank_model: str = ''
     search_rerank_candidates: int = 15
+    search_per_source_limit: int = 2
     database_url: str | None = Field(
         default=None,
         validation_alias=AliasChoices(

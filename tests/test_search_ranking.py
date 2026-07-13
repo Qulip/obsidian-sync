@@ -170,6 +170,7 @@ async def _search_chunks(
         query_embedding=_query_vector(),
         filters=filters or SearchFilters(),
         top_k=top_k,
+        embedding_model=get_settings().embedding_model,
     )
 
 
@@ -347,12 +348,14 @@ async def test_tags_filter_returns_only_chunks_with_overlapping_tag(
 async def test_multiple_chunks_from_same_source_path_are_all_returned(
     db_session: AsyncSession,
 ) -> None:
-    """Documents current behavior: no per-document diversity/dedup is applied.
+    """Documents current behavior: SearchRepository itself applies no cap.
 
-    If two chunks from the same file both rank highly, both are returned as
-    separate results. This is intentional for now -- diversity or per-source
-    capping is not implemented and may change if hybrid search or a reranking
-    stage is added later.
+    If two chunks from the same file both rank highly, both are returned by
+    the repository as separate candidates. Per-source diversity capping is
+    applied one layer up, in KnowledgeSearchService.search (see
+    tests/test_search_diversity.py), so it does not shrink the repository's
+    own candidate pool -- the service needs the full pool to backfill with
+    a different source's chunk after capping.
     """
     vault_pk = await _seed_vault(db_session)
     source_path = 'notes/multi-chunk.md'

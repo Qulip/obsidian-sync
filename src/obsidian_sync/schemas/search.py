@@ -36,7 +36,25 @@ class AnswerContext(BaseModel):
 
 class KnowledgeSearchResult(BaseModel):
     rank: int
-    score: float
+    score: float = Field(
+        description=(
+            'Cosine similarity of the chunk embedding to the query '
+            'embedding, on a 0.0-1.0 scale. In hybrid mode the result '
+            'order (`rank`) is Reciprocal Rank Fusion of vector and '
+            'lexical matches, not a sort of this field -- so `score` may '
+            'not be monotonically decreasing across `results`. See '
+            '`matched_by` for which leg(s) found each result.'
+        )
+    )
+    matched_by: str = Field(
+        default='vector',
+        description=(
+            "Which search leg surfaced this result: 'vector' (semantic "
+            "similarity only), 'lexical' (PostgreSQL full-text keyword "
+            "match only), or 'both'. Always 'vector' when hybrid search "
+            'is disabled.'
+        ),
+    )
     source_path: str
     title: str | None
     heading_path: list[str]
@@ -62,9 +80,12 @@ class KnowledgeSearchResponse(BaseModel):
     answer_context: AnswerContext
     results: list[KnowledgeSearchResult]
     pending_vectorizing_jobs: int = 0
+    failed_vectorizing_jobs: int = 0
+    model_stale_jobs: int = 0
     index_fresh: bool = True
     min_score: float | None = None
     low_confidence: bool = False
+    no_candidates: bool = False
     reranked: bool = False
 
 

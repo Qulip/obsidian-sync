@@ -198,7 +198,14 @@ class KnowledgeChunk(Base):
     content_tsv: Mapped[str | None] = mapped_column(
         TSVECTOR,
         Computed(
-            "to_tsvector('simple', coalesce(title, '') || ' ' || content)",
+            "to_tsvector("
+            "'simple', "
+            "coalesce(title, '') || ' ' || "
+            "replace(replace(coalesce(source_path, ''), '/', ' '), '.', ' ') "
+            "|| ' ' || "
+            f"{DB_SCHEMA}.immutable_tags_text(tags) || ' ' || "
+            'content'
+            ')',
             persisted=True,
         ),
     )

@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import datetime
 from time import perf_counter
 from typing import Any
@@ -71,16 +72,28 @@ class KnowledgeSearchService:
 
         query_embedding = await self.ollama_client.embed(normalized.query)
         if self.settings.search_hybrid_enabled:
-            candidates = await self._hybrid_search_chunks(
+            candidates, matched_by = await self._hybrid_search_chunks(
                 normalized=normalized, query_embedding=query_embedding
             )
         else:
+            # Overfetch beyond top_k only when the per-source cap is active,
+            # so it has spare same-ranked candidates to backfill with after
+            # capping instead of shrinking the response below top_k. When
+            # the cap is disabled (0), fetch exactly top_k as before.
+            candidate_limit = (
+                self.settings.search_candidate_limit
+                if self.settings.search_per_source_limit > 0
+                else None
+            )
             candidates = await self.repository.search_chunks(
                 vault_id=normalized.vault_id,
                 query_embedding=query_embedding,
                 filters=normalized.filters,
                 top_k=normalized.top_k,
+                embedding_model=self.settings.embedding_model,
+                candidate_limit=candidate_limit,
             )
+            matched_by = {record.chunk_id: 'vector' for record in candidates}
         candidate_count = len(candidates)
         effective_min_score = (
             normalized.min_score
@@ -89,20 +102,40 @@ class KnowledgeSearchService:
         )
         records = candidates
         if effective_min_score > 0.0:
+            # The cosine threshold only makes sense for candidates found
+            # purely by vector similarity. A candidate with a lexical match
+            # ('lexical' or 'both') can have a low cosine score for reasons
+            # unrelated to relevance (e.g. an exact function name or error
+            # message match whose surrounding text is semantically distant
+            # from the query embedding) -- filtering those out on cosine
+            # alone would silently discard the strongest keyword matches.
             records = [
-                record for record in records if record.score >= effective_min_score
+                record
+                for record in records
+                if matched_by[record.chunk_id] != 'vector'
+                or record.score >= effective_min_score
             ]
+        no_candidates = candidate_count == 0
         low_confidence = candidate_count > 0 and len(records) == 0
         reranked = False
         if self.settings.search_rerank_enabled and self.settings.search_rerank_model:
             records, reranked = await self._maybe_rerank(
                 query=normalized.query, records=records
             )
+        records = _apply_per_source_cap(
+            records, limit=self.settings.search_per_source_limit
+        )
         records = records[: normalized.top_k]
         reported_min_score = effective_min_score if effective_min_score > 0.0 else None
 
         pending_vectorizing_jobs = await self.repository.count_pending_reindex(
             normalized.vault_id
+        )
+        failed_vectorizing_jobs = await self.repository.count_failed_reindex(
+            normalized.vault_id
+        )
+        model_stale_jobs = await self.repository.count_model_stale_files(
+            normalized.vault_id, self.settings.embedding_model
         )
         latency_ms = int((perf_counter() - started) * 1000)
         filter_payload = _filters_payload(normalized, effective_min_score)
@@ -129,17 +162,30 @@ class KnowledgeSearchService:
             project=normalized.filters.project,
             filters=filter_payload,
             answer_context=_build_answer_context(
-                pending_vectorizing_jobs, low_confidence=low_confidence
+                pending_vectorizing_jobs,
+                failed_vectorizing_jobs,
+                model_stale_jobs,
+                low_confidence=low_confidence,
+                no_candidates=no_candidates,
+                has_results=bool(records),
             ),
             pending_vectorizing_jobs=pending_vectorizing_jobs,
-            index_fresh=pending_vectorizing_jobs == 0,
+            failed_vectorizing_jobs=failed_vectorizing_jobs,
+            model_stale_jobs=model_stale_jobs,
+            index_fresh=(
+                pending_vectorizing_jobs == 0
+                and failed_vectorizing_jobs == 0
+                and model_stale_jobs == 0
+            ),
             min_score=reported_min_score,
             low_confidence=low_confidence,
+            no_candidates=no_candidates,
             reranked=reranked,
             results=[
                 KnowledgeSearchResult(
                     rank=index + 1,
                     score=record.score,
+                    matched_by=matched_by[record.chunk_id],
                     source_path=record.source_path,
                     title=record.title,
                     heading_path=record.heading_path or [],
@@ -164,7 +210,7 @@ class KnowledgeSearchService:
         *,
         normalized: NormalizedSearchQuery,
         query_embedding: list[float],
-    ) -> list[SearchResultRecord]:
+    ) -> tuple[list[SearchResultRecord], dict[int, str]]:
         """Merge vector and lexical candidates via Reciprocal Rank Fusion.
 
         Each leg is queried sequentially (a single AsyncSession cannot run
@@ -172,6 +218,11 @@ class KnowledgeSearchService:
         then merged by chunk id using RRF. The returned score on each record
         remains cosine similarity, not the RRF value -- RRF only decides
         ordering here.
+
+        Also returns a chunk_id -> matched_by map ('vector', 'lexical', or
+        'both') recording which leg(s) surfaced each candidate, so callers
+        can tell apart a chunk that only ranked well semantically from one
+        that was pulled in by an exact keyword match.
         """
         candidate_limit = self.settings.search_candidate_limit
         vector_records = await self.repository.search_chunks(
@@ -179,6 +230,7 @@ class KnowledgeSearchService:
             query_embedding=query_embedding,
             filters=normalized.filters,
             top_k=normalized.top_k,
+            embedding_model=self.settings.embedding_model,
             candidate_limit=candidate_limit,
         )
         lexical_records = await self.repository.search_chunks_lexical(
@@ -187,18 +239,23 @@ class KnowledgeSearchService:
             query_text=normalized.query,
             filters=normalized.filters,
             candidate_limit=candidate_limit,
+            embedding_model=self.settings.embedding_model,
         )
         records_by_id = {
             record.chunk_id: record
             for record in (*lexical_records, *vector_records)
         }
+        matched_by = _build_matched_by(
+            vector_ids=(record.chunk_id for record in vector_records),
+            lexical_ids=(record.chunk_id for record in lexical_records),
+        )
         merged_ids = reciprocal_rank_fusion(
             (
                 [record.chunk_id for record in vector_records],
                 [record.chunk_id for record in lexical_records],
             )
         )
-        return [records_by_id[chunk_id] for chunk_id in merged_ids]
+        return [records_by_id[chunk_id] for chunk_id in merged_ids], matched_by
 
     async def _maybe_rerank(
         self, *, query: str, records: list[SearchResultRecord]
@@ -330,13 +387,44 @@ def _normalize_or_raise(
 
 
 def _build_answer_context(
-    pending_vectorizing_jobs: int, *, low_confidence: bool
+    pending_vectorizing_jobs: int,
+    failed_vectorizing_jobs: int,
+    model_stale_jobs: int,
+    *,
+    low_confidence: bool,
+    no_candidates: bool,
+    has_results: bool,
 ) -> AnswerContext:
-    if low_confidence:
+    if not has_results:
+        if no_candidates:
+            model_stale_notice = (
+                (
+                    f' {model_stale_jobs} file(s) were indexed with a '
+                    'different embedding model and are excluded; run a '
+                    'full reindex (reindex_vault(mode=full)) if this note '
+                    'is expected to match.'
+                )
+                if model_stale_jobs > 0
+                else ''
+            )
+            return AnswerContext(
+                summary=(
+                    'No supporting evidence was found for this query -- no '
+                    'vector or lexical candidate matched it.' + model_stale_notice
+                ),
+                recommended_action=(
+                    'Do not cite these results -- there is no matching chunk '
+                    'for this query. Try rephrasing the query or adjusting '
+                    'filters, or check pending_vectorizing_jobs / '
+                    'failed_vectorizing_jobs / model_stale_jobs in case '
+                    'relevant notes have not been indexed yet.'
+                ),
+            )
         return AnswerContext(
             summary=(
-                'No results met the minimum relevance threshold; treat as no '
-                'supporting evidence.'
+                'No supporting evidence was found for this query -- '
+                'candidates existed but none met the minimum relevance '
+                'threshold.'
             ),
             recommended_action=(
                 'Do not cite these results -- no chunk was relevant enough to '
@@ -344,7 +432,11 @@ def _build_answer_context(
                 'or reporting that no matching notes were found.'
             ),
         )
-    if pending_vectorizing_jobs == 0:
+    if (
+        pending_vectorizing_jobs == 0
+        and failed_vectorizing_jobs == 0
+        and model_stale_jobs == 0
+    ):
         return AnswerContext(
             summary='Search returned matching chunks based on query and metadata.',
             recommended_action=(
@@ -352,19 +444,79 @@ def _build_answer_context(
                 'results first.'
             ),
         )
+    notices: list[str] = []
+    if pending_vectorizing_jobs > 0:
+        notices.append(
+            f'{pending_vectorizing_jobs} file(s) are not yet indexed, so '
+            'results may be incomplete.'
+        )
+    if failed_vectorizing_jobs > 0:
+        notices.append(
+            f'{failed_vectorizing_jobs} file(s) failed indexing and are '
+            'missing from search results; check index failure logs.'
+        )
+    if model_stale_jobs > 0:
+        notices.append(
+            f'{model_stale_jobs} file(s) were indexed with a different '
+            'embedding model and are excluded; run a full reindex '
+            '(reindex_vault(mode=full)) to restore them.'
+        )
+    reindex_mode = 'full' if model_stale_jobs > 0 else 'changed_only'
     return AnswerContext(
         summary=(
             'Search returned matching chunks based on query and metadata. '
-            f'{pending_vectorizing_jobs} file(s) are not yet indexed, so '
-            'results may be incomplete.'
+            + ' '.join(notices)
         ),
         recommended_action=(
             'Review source_path, heading_path, and agent_hint from the top '
-            'results first. Some files are still pending vectorization -- '
-            'run reindex_vault(mode=changed_only) and search again for '
+            'results first. Some files are still pending, failed, or '
+            f'indexed with a stale embedding model -- run '
+            f'reindex_vault(mode={reindex_mode}) and search again for '
             'complete results.'
         ),
     )
+
+
+def _apply_per_source_cap(
+    records: list[SearchResultRecord], *, limit: int
+) -> list[SearchResultRecord]:
+    """Cap how many chunks from the same source_path survive, keeping order.
+
+    Applied after min_score filtering and rerank, before the top_k slice.
+    Skipped-over chunks are simply dropped from this rank order -- the next
+    candidate from a different source (already present in the overfetched
+    candidate pool) fills the gap, so top_k is not shrunk by the cap.
+    `limit <= 0` disables the cap entirely.
+    """
+    if limit <= 0:
+        return records
+    counts: dict[str, int] = {}
+    capped: list[SearchResultRecord] = []
+    for record in records:
+        count = counts.get(record.source_path, 0)
+        if count >= limit:
+            continue
+        counts[record.source_path] = count + 1
+        capped.append(record)
+    return capped
+
+
+def _build_matched_by(
+    *, vector_ids: Iterable[int], lexical_ids: Iterable[int]
+) -> dict[int, str]:
+    vector_id_set = set(vector_ids)
+    lexical_id_set = set(lexical_ids)
+    matched_by: dict[int, str] = {}
+    for chunk_id in vector_id_set | lexical_id_set:
+        in_vector = chunk_id in vector_id_set
+        in_lexical = chunk_id in lexical_id_set
+        if in_vector and in_lexical:
+            matched_by[chunk_id] = 'both'
+        elif in_lexical:
+            matched_by[chunk_id] = 'lexical'
+        else:
+            matched_by[chunk_id] = 'vector'
+    return matched_by
 
 
 def _filters_payload(

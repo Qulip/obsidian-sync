@@ -21,6 +21,7 @@ from obsidian_sync.services.search import KnowledgeSearchService
 VAULT_ID = 'freshness-vault'
 INDEXED_PATH = 'notes/indexed.md'
 PENDING_PATH = 'notes/pending.md'
+FAILED_PATH = 'notes/failed.md'
 EMBEDDING_DIMENSIONS = 1024
 
 
@@ -96,6 +97,22 @@ async def _seed_pending_file(session: AsyncSession, *, vault_pk: int) -> None:
     await session.flush()
 
 
+async def _seed_failed_file(session: AsyncSession, *, vault_pk: int) -> None:
+    session.add(
+        VaultFile(
+            vault_pk=vault_pk,
+            vault_id=VAULT_ID,
+            source_path=FAILED_PATH,
+            content_hash='hash-failed',
+            index_status='failed',
+            vectorize=True,
+            deleted=False,
+            revision=1,
+        )
+    )
+    await session.flush()
+
+
 async def _search(db_session: AsyncSession) -> KnowledgeSearchService:
     return KnowledgeSearchService(
         repository=SearchRepository(db_session),
@@ -125,6 +142,7 @@ async def test_search_reports_fresh_index_when_nothing_pending(
     )
 
     assert response.pending_vectorizing_jobs == 0
+    assert response.failed_vectorizing_jobs == 0
     assert response.index_fresh is True
 
 
@@ -150,6 +168,62 @@ async def test_search_reports_stale_index_when_reindex_pending(
     )
 
     assert response.pending_vectorizing_jobs == 1
+    assert response.failed_vectorizing_jobs == 0
     assert response.index_fresh is False
     assert 'pending' in response.answer_context.recommended_action.lower()
     assert 'not yet indexed' in response.answer_context.summary.lower()
+
+
+async def test_search_reports_stale_index_when_reindex_failed(
+    db_session: AsyncSession,
+) -> None:
+    vault_pk = await _seed_vault(db_session)
+    await _seed_indexed_file(db_session, vault_pk=vault_pk)
+    await _seed_failed_file(db_session, vault_pk=vault_pk)
+
+    service = await _search(db_session)
+    response = await service.search(
+        vault_id=VAULT_ID,
+        query='indexed content',
+        filters=None,
+        top_k=None,
+        project=None,
+        domain=None,
+        min_score=None,
+        token_id=None,
+        client_ip=None,
+        user_agent=None,
+    )
+
+    assert response.pending_vectorizing_jobs == 0
+    assert response.failed_vectorizing_jobs == 1
+    assert response.index_fresh is False
+    assert 'failed indexing' in response.answer_context.summary.lower()
+    assert 'index failure logs' in response.answer_context.summary.lower()
+
+
+async def test_search_reports_both_pending_and_failed_counts(
+    db_session: AsyncSession,
+) -> None:
+    vault_pk = await _seed_vault(db_session)
+    await _seed_indexed_file(db_session, vault_pk=vault_pk)
+    await _seed_pending_file(db_session, vault_pk=vault_pk)
+    await _seed_failed_file(db_session, vault_pk=vault_pk)
+
+    service = await _search(db_session)
+    response = await service.search(
+        vault_id=VAULT_ID,
+        query='indexed content',
+        filters=None,
+        top_k=None,
+        project=None,
+        domain=None,
+        min_score=None,
+        token_id=None,
+        client_ip=None,
+        user_agent=None,
+    )
+
+    assert response.pending_vectorizing_jobs == 1
+    assert response.failed_vectorizing_jobs == 1
+    assert response.index_fresh is False

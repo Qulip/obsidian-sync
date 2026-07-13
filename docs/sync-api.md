@@ -5,7 +5,7 @@ Revision-based sync API입니다. 각 Vault는 단조 증가하는 `current_revi
 ## Architecture
 
 ```
-obsidian-sync-agent (로컬 vault)
+obsisync (로컬 vault)
         |
         |  Bearer token  (HTTP)
         v

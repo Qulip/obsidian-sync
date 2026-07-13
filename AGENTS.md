@@ -40,7 +40,7 @@ docs/                  # current protocol and operational contracts
 
 ## Project Structure & Module Organization
 
-This is a Python 3.14 FastAPI service using a `src/` layout. Application code lives in `src/obsidian_sync/`: `api/` contains routers and dependencies, `core/` holds configuration and shared error handling, `db/` contains SQLAlchemy setup and models, `domain/` contains pure domain helpers, `repositories/` handles persistence, `services/` coordinates workflows, and `schemas/` defines API payloads. `obsidian_sync.app:app` is the ASGI entry point; `main.py` is only a CLI compatibility launcher. The Go agent lives in `cmd/obsidian-sync-agent` and `internal/syncagent`; it is the default distribution, while `src/obsidian_sync/sync_agent` is retained for compatibility. Both expose the `obsidian-sync-agent` name, but only the Python CLI supports `watch`. Database migrations live in `alembic/versions/`; raw DDL is in `db/`; design notes are in `docs/`.
+This is a Python 3.14 FastAPI service using a `src/` layout. Application code lives in `src/obsidian_sync/`: `api/` contains routers and dependencies, `core/` holds configuration and shared error handling, `db/` contains SQLAlchemy setup and models, `domain/` contains pure domain helpers, `repositories/` handles persistence, `services/` coordinates workflows, and `schemas/` defines API payloads. `obsidian_sync.app:app` is the ASGI entry point; `main.py` is only a CLI compatibility launcher. The Go agent lives in `cmd/obsidian-sync-agent` and `internal/syncagent`; it is the default distribution as `obsisync`, while `src/obsidian_sync/sync_agent` is retained as the `obsidian-sync-agent` compatibility CLI. Only the Python CLI supports `watch`. Database migrations live in `alembic/versions/`; raw DDL is in `db/`; design notes are in `docs/`.
 
 ## Build, Test, and Development Commands
 
@@ -52,7 +52,7 @@ This is a Python 3.14 FastAPI service using a `src/` layout. Application code li
 - `uv run mypy`: run strict type checking for `src` and `main.py`.
 - `docker build -t obsidian-sync-api .`: build the API container image.
 - `go test ./... && go vet ./...`: verify the Go sync agent.
-- `make build-agent`: build the Go agent at `dist/obsidian-sync-agent/`.
+- `make build-agent`: build the Go agent at `dist/obsisync/`.
 
 ## Coding Style & Naming Conventions
 

@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	commandName  = "obsidian-sync-agent"
+	commandName  = "obsisync"
 	exitOK       = 0
 	exitConflict = 1
 	exitError    = 2

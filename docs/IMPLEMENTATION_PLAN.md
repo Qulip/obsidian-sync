@@ -1,7 +1,7 @@
 # Obsidian + pgvector 기반 개인 지식 저장소 구현 설계서 v1
 
 > Historical note: 이 문서는 초기 단방향 업로드 설계서입니다. 현재 구현은
-> revision 기반 양방향 sync와 `obsidian-sync-agent`를 지원합니다. 최신 운영
+> revision 기반 양방향 sync와 `obsisync`를 지원합니다. 최신 운영
 > 정책은 `README.md`, `docs/sync-api.md`, `docs/sync-agent.md`,
 > `docs/vectorizing.md`를 기준으로 확인하세요.
 

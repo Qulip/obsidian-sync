@@ -43,6 +43,9 @@ func TestRun_returnsOK_whenRootHelpRequested(t *testing.T) {
 			if !strings.Contains(stdout.String(), "Usage:") {
 				t.Fatalf("stdout = %q", stdout.String())
 			}
+			if !strings.Contains(stdout.String(), "obsisync") {
+				t.Fatalf("stdout = %q", stdout.String())
+			}
 			if stderr.Len() != 0 {
 				t.Fatalf("stderr = %q", stderr.String())
 			}

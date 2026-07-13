@@ -3,7 +3,7 @@
 개인 Obsidian Vault를 FastAPI 서버에 동기화하고, PostgreSQL +
 pgvector와 Ollama embedding으로 검색하는 개인 지식 저장소 서버입니다.
 
-동기화는 **Revision 기반 양방향 sync**를 사용합니다. `obsidian-sync-agent` CLI가
+동기화는 **Revision 기반 양방향 sync**를 사용합니다. `obsisync` CLI가
 여러 PC의 로컬 Vault와 서버 Canonical Vault를 revision으로 동기화합니다. 같은
 파일이 두 PC에서 동시에 수정되면 자동 병합 없이 409 Conflict로 처리하고,
 로컬에 `.conflict` 파일을 남깁니다. 자세한 내용은
@@ -22,7 +22,7 @@ Streamable HTTP MCP tool을 사용할 수 있습니다.
 ```text
 Obsidian Vault
     |
-    | obsidian-sync-agent sync (PUT /vaults/{vault_id}/files/{path})
+    | obsisync sync (PUT /vaults/{vault_id}/files/{path})
     v
 FastAPI obsidian-sync
     |
@@ -41,7 +41,7 @@ FastAPI obsidian-sync
 
 기본 흐름은 다음과 같습니다.
 
-1. `obsidian-sync-agent`가 로컬 변경분을 `base_revision` 기반으로
+1. `obsisync`가 로컬 변경분을 `base_revision` 기반으로
    `PUT /vaults/{vault_id}/files/{path}`에 올립니다 (또는 Agent가 MCP `sync_file`로
    노트 한 건을 저장합니다).
 2. `changed_only` reindex로 Markdown을 chunking하고 embedding을 저장합니다.
@@ -225,7 +225,7 @@ curl -sS -X POST http://localhost:8000/vaults \
 `vault_id`는 소문자, 숫자, hyphen만 허용합니다.
 
 Vault 내용을 로컬 디렉터리와 동기화하려면 [Client (sync-agent)](#client-sync-agent)의
-`obsidian-sync-agent sync`를 사용하세요. Revision 기반 PUT/GET/DELETE API의
+`obsisync sync`를 사용하세요. Revision 기반 PUT/GET/DELETE API의
 전체 계약(요청/응답 예시, 충돌 처리, soft delete)은 [docs/sync-api.md](docs/sync-api.md)를
 참고하세요.
 
@@ -234,7 +234,7 @@ the service attempts to restore the previous file state.
 
 ## Client (sync-agent)
 
-`obsidian-sync-agent`는 각 PC에서 실행되는 로컬 클라이언트입니다. 로컬 Vault와
+`obsisync`는 각 PC에서 실행되는 로컬 클라이언트입니다. 로컬 Vault와
 서버 Canonical Vault를 revision 기반으로 양방향 동기화합니다. 여러 PC를
 `device_id`로 구분하며, 같은 파일이 동시에 수정되면 자동 병합 없이 로컬에
 `.conflict` 파일을 만들어 사용자가 직접 해결하게 합니다.
@@ -256,7 +256,7 @@ the service attempts to restore the previous file state.
 
 ### Install
 
-`obsidian-sync-agent`는 Go로 포팅된 로컬 클라이언트 바이너리를 기본 배포
+`obsisync`는 Go로 포팅된 로컬 클라이언트 바이너리를 기본 배포
 형태로 사용합니다. FastAPI 서버는 계속 Python 애플리케이션이며, Dockerfile도
 서버 실행만 대상으로 합니다.
 
@@ -266,12 +266,12 @@ the service attempts to restore the previous file state.
 
 ```bash
 make build-agent
-install dist/obsidian-sync-agent/obsidian-sync-agent /usr/local/bin/obsidian-sync-agent
-obsidian-sync-agent --help
+install dist/obsisync/obsisync /usr/local/bin/obsisync
+obsisync --help
 ```
 
 타깃별 로컬 빌드 산출물이 필요하면 `make build-agent-all`을 실행합니다.
-산출물은 git에서 무시되는 `dist/obsidian-sync-agent/` 아래에 생성됩니다.
+산출물은 git에서 무시되는 `dist/obsisync/` 아래에 생성됩니다.
 
 기존 Python 콘솔 스크립트도 아직 유지됩니다. Go 바이너리가 배포/운영 경로가
 되지만, Python CLI는 호환성 확인과 롤백을 위해 명시적인 제거 작업 전까지
@@ -306,7 +306,7 @@ export OBSIDIAN_SYNC_AGENT_SERVER='http://localhost:8000'
 export OBSIDIAN_SYNC_AGENT_VAULT_ID='personal-main'
 export OBSIDIAN_SYNC_AGENT_TOKEN='osk_...'
 
-obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault"
+obsisync sync --vault-root "$HOME/ObsidianVault"
 ```
 
 설정 파일로 관리하는 예시 (`~/ObsidianVault/.obsidian-sync-agent/config.json`):
@@ -331,19 +331,19 @@ obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault"
 한 번의 sync 사이클(pull → 로컬 반영 → scan → push)을 실행합니다.
 
 ```bash
-obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault"
+obsisync sync --vault-root "$HOME/ObsidianVault"
 ```
 
 실제 쓰기/전송 없이 계획만 출력:
 
 ```bash
-obsidian-sync-agent sync --vault-root "$HOME/ObsidianVault" --dry-run
+obsisync sync --vault-root "$HOME/ObsidianVault" --dry-run
 ```
 
 서버/로컬 동기화 상태 확인:
 
 ```bash
-obsidian-sync-agent status --vault-root "$HOME/ObsidianVault"
+obsisync status --vault-root "$HOME/ObsidianVault"
 ```
 
 주기 실행은 cron/launchd/systemd timer로 위 `sync` 명령을 반복 호출하면 됩니다.
@@ -384,7 +384,7 @@ Notes/JPA.conflict.macbook-pro.20260707-121500.md
 1. `.conflict` 파일을 열어 두 버전을 비교하고 원본(`Notes/JPA.md`)을 원하는
    내용으로 직접 정리합니다.
 2. `.conflict` 파일을 삭제합니다.
-3. 다시 `obsidian-sync-agent sync`를 실행합니다.
+3. 다시 `obsisync sync`를 실행합니다.
 
 다음 sync는 conflict 당시 서버 revision을 기준으로 정리된 원본 파일을
 업로드합니다. 원본 파일을 바꾸지 않은 상태에서는 unresolved conflict로 보고

@@ -1,6 +1,6 @@
 # Sync Agent
 
-`obsidian-sync-agent`는 로컬 Obsidian vault와 obsidian-sync 서버를 동기화하는 CLI 도구입니다.
+`obsisync`는 로컬 Obsidian vault와 obsidian-sync 서버를 동기화하는 Go CLI 도구입니다.
 `.md` 파일은 항상 동기화합니다. 첨부 파일(이미지·PDF)은 `sync_attachments` 설정을 켜야
 동기화됩니다(기본값 `false`, 하위 호환) — 자세한 내용은
 [첨부파일 동기화](#첨부파일-동기화) 섹션을 참고하세요.
@@ -9,7 +9,7 @@
 
 ## 설치
 
-권장 클라이언트 배포 형태는 Go로 빌드한 `obsidian-sync-agent` 단일
+권장 클라이언트 배포 형태는 Go로 빌드한 `obsisync` 단일
 바이너리입니다. 서버는 여전히 Python FastAPI 애플리케이션으로 실행합니다.
 
 릴리스에 현재 플랫폼용 바이너리가 첨부되어 있다면 내려받아 실행 권한을 주고
@@ -18,8 +18,8 @@
 
 ```bash
 make build-agent
-install dist/obsidian-sync-agent/obsidian-sync-agent /usr/local/bin/obsidian-sync-agent
-obsidian-sync-agent --help
+install dist/obsisync/obsisync /usr/local/bin/obsisync
+obsisync --help
 ```
 
 크로스 플랫폼 로컬 빌드:
@@ -28,7 +28,7 @@ obsidian-sync-agent --help
 make build-agent-all
 ```
 
-산출물은 git에서 무시되는 `dist/obsidian-sync-agent/` 아래에 생성됩니다.
+산출물은 git에서 무시되는 `dist/obsisync/` 아래에 생성됩니다.
 
 기존 Python CLI 진입점은 아직 유지됩니다. Go 바이너리가 클라이언트 배포 경로가
 되지만, Python `obsidian-sync-agent` 콘솔 스크립트는 명시적인 제거 작업 전까지
@@ -47,8 +47,8 @@ uv run obsidian-sync-agent --help
 서브 커맨드:
 
 ```
-obsidian-sync-agent sync    [옵션]   # 전체 sync 사이클 실행
-obsidian-sync-agent status  [옵션]   # 서버 및 로컬 상태 출력
+obsisync sync                [옵션]   # 전체 sync 사이클 실행
+obsisync status              [옵션]   # 서버 및 로컬 상태 출력
 obsidian-sync-agent watch   [옵션]   # 포그라운드 상주: 파일 변경 감지 후 sync 실행
 ```
 
@@ -124,7 +124,7 @@ Config 파일 위치: `{vault_root}/.obsidian-sync-agent/config.json`
 
 ### watch 모드 설정
 
-`obsidian-sync-agent watch`에서만 쓰이는 설정입니다. 자세한 동작은
+Python `obsidian-sync-agent watch`에서만 쓰이는 설정입니다. 자세한 동작은
 [watch 모드](#watch-모드) 섹션을 참고하세요.
 
 | 항목 | CLI 인수 | 환경 변수 | Config 파일 키 | 기본값 |
@@ -241,7 +241,7 @@ Manifest 파일은 atomic write로 저장됩니다 (`.tmp` → rename).
 
 ## Sync 순서
 
-`obsidian-sync-agent sync` 실행 시:
+`obsisync sync` 실행 시:
 
 ```
 1. 디바이스 등록 (POST /vaults/{vault_id}/sync/devices)
@@ -340,7 +340,7 @@ conflict 파일은 `(경로, 서버 revision)` 조합당 하나만 생성됩니�
 1. conflict 파일을 열어 Local Version과 Server Version 비교
 2. 원본 파일(`Notes/example.md`)을 올바른 내용으로 편집
 3. conflict 파일(`Notes/example.conflict.my-laptop.*.md`) 삭제
-4. `obsidian-sync-agent sync` 재실행
+4. `obsisync sync` 재실행
 
 Conflict 파일 자체는 제외 패턴(`*.conflict.*.md`)에 의해 서버로 push되지 않습니다.
 
@@ -418,7 +418,7 @@ false`)이며, 기존 v1 에이전트와 동일하게 `.md`만 동기화합니�
 또는 CLI에서:
 
 ```bash
-obsidian-sync-agent sync --vault-root ~/ObsidianVault --sync-attachments
+obsisync sync --vault-root ~/ObsidianVault --sync-attachments
 ```
 
 `--no-sync-attachments`로 config/env에서 켜진 값을 CLI에서 다시 끌 수 있습니다.
@@ -669,19 +669,19 @@ Obsidian의 파일 감시자가 네트워크 드라이브나 Flatpak 샌드박�
 ```bash
 # 기본 sync (config 파일 + 환경 변수 사용)
 export OBSIDIAN_SYNC_AGENT_TOKEN="osk_..."
-obsidian-sync-agent sync --vault-root ~/ObsidianVault
+obsisync sync --vault-root ~/ObsidianVault
 
 # 변경 계획만 확인 (dry-run)
-obsidian-sync-agent sync --vault-root ~/ObsidianVault --dry-run
+obsisync sync --vault-root ~/ObsidianVault --dry-run
 
 # 서버 상태 확인
-obsidian-sync-agent status \
+obsisync status \
   --vault-root ~/ObsidianVault \
   --server http://localhost:8000 \
   --vault-id personal-main
 
 # Obsidian refresh 실패 시 오류 처리
-obsidian-sync-agent sync \
+obsisync sync \
   --vault-root ~/ObsidianVault \
   --require-obsidian-refresh
 

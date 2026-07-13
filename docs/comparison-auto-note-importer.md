@@ -35,7 +35,7 @@
 
 ```text
 local vault
-  -> obsidian-sync-agent sync/watch
+  -> obsisync sync/status 또는 obsidian-sync-agent watch
   -> FastAPI Sync API
   -> vaults/<vault_id>/ canonical files + PostgreSQL metadata
   -> reindex/Ollama embedding
@@ -47,7 +47,7 @@ local vault
 | 레이어 | 기능 |
 |---|---|
 | API | vault 관리, revision sync, 파일 조회/PUT/DELETE/RESTORE, reindex, semantic search, search log, MCP용 vault/search/note/status |
-| CLI/agent | `obsidian-sync-agent sync`, `status`, `watch`; pull-scan-push-pull sync cycle; local manifest; conflict policy |
+| CLI/agent | `obsisync sync`, `obsisync status`, Python `obsidian-sync-agent watch`; pull-scan-push-pull sync cycle; local manifest; conflict policy |
 | DB | `vaults`, `vault_files`, `sync_devices`, `sync_events`, `sync_conflicts`, `vault_file_versions`, `knowledge_chunks`, `api_tokens`, search/index logs |
 | services | `RevisionSyncService`가 양방향 sync 정합성 중심, `VaultSyncService`가 MCP one-way save의 fail-closed 래퍼 역할, `IndexingService`와 `KnowledgeSearchService`가 검색 기능 담당 |
 | domain | 경로 정규화, 해시 검증, 파일 허용 정책, ignored/conflict 파일 판정, frontmatter 파싱, chunking, 검색 필터 정규화 |
@@ -55,7 +55,7 @@ local vault
 
 ### 1.2 Revision 기반 양방향 동기화
 
-`obsidian-sync-agent sync`는 다음 순서로 동작한다.
+`obsisync sync`는 다음 순서로 동작한다.
 
 1. 디바이스 등록
 2. 서버 변경 pull

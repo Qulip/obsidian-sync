@@ -39,7 +39,7 @@ MCP tool이 있으면 `sync_file_mcp_vaults__vault_id__sync_file_post`를 호출
 {
   "vault_id": "<선택한 vault_id>",
   "path": "Agent Notes/YYYY-MM-DD-short-title.md",
-  "content": "---\ntitle: \"<제목>\"\ndate: YYYY-MM-DD\ntags: [python, fastapi]\nsource: agent\nproject: <프로젝트명>\n---\n\n# <제목>\n\n<마크다운 내용>\n",
+  "content": "---\ntitle: \"<제목>\"\ntype: study-note\nproject: <프로젝트명>\ndomain: knowledge-management\nstatus: current\npriority: medium\nvisibility: personal\ntags: [python, fastapi]\nvectorize: true\ncreated: YYYY-MM-DD\nupdated: YYYY-MM-DD\nsource: agent\n---\n\n# <제목>\n\n<마크다운 내용>\n",
   "mime_type": "text/markdown"
 }
 ```

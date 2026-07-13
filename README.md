@@ -528,6 +528,9 @@ Available tools:
 - `sync_file_mcp_vaults__vault_id__sync_file_post`
 - `reindex_vault_mcp_vaults__vault_id__reindex_post`
 - `search_knowledge_mcp_knowledge_search_post`
+- `submit_search_feedback_mcp_knowledge_search_feedback_post`
+- `get_note_mcp_vaults_note_post`
+- `get_sync_status_mcp_vaults__vault_id__sync_status_get`
 
 Pass the DB API token as an `Authorization: Bearer ...` header in the MCP client.
 Tool calls fail with 401 unless a valid DB API token is forwarded.
@@ -651,6 +654,9 @@ DB API token:
 | `POST` | `/mcp/vaults/{vault_id}/sync/file` | Agent-facing direct Markdown save |
 | `POST` | `/mcp/vaults/{vault_id}/reindex` | Agent-facing reindex |
 | `POST` | `/mcp/knowledge/search` | Agent-facing search |
+| `POST` | `/mcp/knowledge/search/feedback` | Agent-facing search feedback |
+| `POST` | `/mcp/vaults/note` | Agent-facing note lookup |
+| `GET` | `/mcp/vaults/{vault_id}/sync/status` | Agent-facing sync status |
 
 ## Backup
 

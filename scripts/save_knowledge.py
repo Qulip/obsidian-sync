@@ -125,18 +125,20 @@ def _save(server_url: str, args: argparse.Namespace) -> int:
 
     status = upload_data.get('status', 'uploaded')
 
-    # Reindex (non-fatal — Ollama may not be running). Skipped when the
-    # content was unchanged since there is nothing new to embed.
     if not args.no_reindex and status != 'skipped':
-        try:
-            _post(
-                server_url,
-                args.token,
-                f'/mcp/vaults/{args.vault_id}/reindex',
-                {'mode': 'changed_only'},
+        reindex_data = _post(
+            server_url,
+            args.token,
+            f'/mcp/vaults/{args.vault_id}/reindex',
+            {'mode': 'changed_only'},
+        )
+        failed_files = reindex_data.get('failed_files')
+        if isinstance(failed_files, int) and failed_files > 0:
+            failures = reindex_data.get('failures', [])
+            print(
+                f'WARNING: reindex failed for {failed_files} file(s): {failures}',
+                file=sys.stderr,
             )
-        except RuntimeError:
-            pass
 
     _print(
         {
@@ -174,12 +176,21 @@ def _resolve_path(args: argparse.Namespace) -> str:
 
 def _build_markdown(title: str, tags: list[str], project: str | None, body: str) -> str:
     date_str = datetime.now(UTC).strftime('%Y-%m-%d')
-    lines = ['---', f'title: "{title}"', f'date: {date_str}']
-    if tags:
-        lines.append(f'tags: [{", ".join(tags)}]')
-    lines.append('source: agent')
-    if project:
-        lines.append(f'project: {project}')
+    lines = [
+        '---',
+        f'title: "{title}"',
+        'type: study-note',
+        f'project: {project or "agent-knowledge"}',
+        'domain: knowledge-management',
+        'status: current',
+        'priority: medium',
+        'visibility: personal',
+        f'tags: [{", ".join(tags)}]',
+        'vectorize: true',
+        f'created: {date_str}',
+        f'updated: {date_str}',
+        'source: agent',
+    ]
     lines += ['---', '', f'# {title}', '', body.strip(), '']
     return '\n'.join(lines)
 

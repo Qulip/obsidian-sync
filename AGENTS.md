@@ -1,8 +1,46 @@
-# Repository Guidelines
+# PROJECT KNOWLEDGE BASE
+
+**Generated:** 2026-07-13 (Asia/Seoul)
+**Commit:** 2ec6a4f
+**Branch:** main
+
+## OVERVIEW
+
+Obsidian Sync is a Python 3.14 FastAPI service and a Go 1.23 local sync-agent
+distribution. The Python sync-agent CLI remains a compatibility and rollback path.
+
+## STRUCTURE
+
+```text
+src/obsidian_sync/     # FastAPI service and Python compatibility agent
+cmd/                   # Go agent command entry point
+internal/syncagent/    # Go agent implementation
+alembic/               # authoritative schema migration chain
+tests/                 # Python unit, API, and integration tests
+docs/                  # current protocol and operational contracts
+```
+
+## WHERE TO LOOK
+
+| Task | Location | Notes |
+|---|---|---|
+| ASGI startup and MCP mounting | `src/obsidian_sync/app.py` | `create_app()` builds the import-time app. |
+| API request handling | `src/obsidian_sync/api/` | REST and REST-shaped MCP adapters. |
+| Sync write semantics | `src/obsidian_sync/services/revision_sync.py` | Revision, storage, conflict, and rollback workflow. |
+| Production local client | `internal/syncagent/` | Go implementation built by `make build-agent`. |
+| Schema evolution | `alembic/versions/` | Linear migration history; raw DDL is reference only. |
+
+## CODE MAP
+
+| Symbol | Type | Location | Refs | Role |
+|---|---|---|---:|---|
+| `create_app` | function | `app.py` | 1 | ASGI lifespan, error handling, router/MCP mounting |
+| `RevisionSyncService` | class | `services/revision_sync.py` | 5 | Canonical revisioned vault writes |
+| `VaultSyncService` | class | `services/vault_sync.py` | 6 | MCP-oriented vault workflows |
 
 ## Project Structure & Module Organization
 
-This is a Python 3.14 FastAPI service using a `src/` layout. Application code lives in `src/obsidian_sync/`: `api/` contains routers and dependencies, `core/` holds configuration and shared error handling, `db/` contains SQLAlchemy setup and models, `domain/` contains pure domain helpers, `repositories/` handles persistence, `services/` coordinates workflows, and `schemas/` defines API payloads. CLI and utility entry points are in `src/obsidian_sync/cli.py`, `main.py`, and `scripts/`. Database migrations live in `alembic/versions/`; raw DDL is in `db/`; design notes are in `docs/`.
+This is a Python 3.14 FastAPI service using a `src/` layout. Application code lives in `src/obsidian_sync/`: `api/` contains routers and dependencies, `core/` holds configuration and shared error handling, `db/` contains SQLAlchemy setup and models, `domain/` contains pure domain helpers, `repositories/` handles persistence, `services/` coordinates workflows, and `schemas/` defines API payloads. `obsidian_sync.app:app` is the ASGI entry point; `main.py` is only a CLI compatibility launcher. The Go agent lives in `cmd/obsidian-sync-agent` and `internal/syncagent`; it is the default distribution, while `src/obsidian_sync/sync_agent` is retained for compatibility. Both expose the `obsidian-sync-agent` name, but only the Python CLI supports `watch`. Database migrations live in `alembic/versions/`; raw DDL is in `db/`; design notes are in `docs/`.
 
 ## Build, Test, and Development Commands
 
@@ -13,10 +51,14 @@ This is a Python 3.14 FastAPI service using a `src/` layout. Application code li
 - `uv run ruff format .`: format code using the repository Ruff settings.
 - `uv run mypy`: run strict type checking for `src` and `main.py`.
 - `docker build -t obsidian-sync-api .`: build the API container image.
+- `go test ./... && go vet ./...`: verify the Go sync agent.
+- `make build-agent`: build the Go agent at `dist/obsidian-sync-agent/`.
 
 ## Coding Style & Naming Conventions
 
 Use four-space indentation, single quotes, and an 88-character line length; these are enforced by Ruff. Prefer absolute imports because relative imports are banned. Keep domain logic in `domain/`, orchestration in `services/`, persistence in `repositories/`, and HTTP-specific behavior in `api/`. Use snake_case for modules, functions, and variables; use PascalCase for classes and Pydantic/SQLAlchemy models.
+
+Routes use dependency aliases, `ok(...)` response envelopes, and `AppError` for expected failures. Repositories execute persistence operations but never commit; the session dependency owns commit and rollback. Schema changes require a new Alembic revision. Keep the Python and Go agent protocol aligned unless a deliberately coordinated contract change says otherwise.
 
 ## Testing Guidelines
 
@@ -27,6 +69,8 @@ uv run ruff check . && uv run mypy && uv run pytest -q
 ```
 
 API and integration tests need local PostgreSQL with the pgvector extension; they create and migrate a dedicated `obsidian_sync_test` database. Ollama is stubbed in tests, so no other external service is required.
+
+Go tests are colocated as `*_test.go`. CI currently runs only the Python gate, so run the Go checks for changes under `cmd/` or `internal/`.
 
 ### Local Test Database
 
@@ -50,3 +94,11 @@ The current history uses concise scoped messages such as `init: 초기 구현`. 
 ## Security & Configuration Tips
 
 Do not commit secrets. Production requires `OBSIDIAN_SYNC_DATABASE_URL` and `KNOWLEDGE_API_TOKEN`; set them through the environment. Keep generated vault backups, archives, and local `.venv` contents out of version control.
+
+## ANTI-PATTERNS (THIS PROJECT)
+
+- Do not bypass `RevisionSyncService` for vault mutations: every real write,
+  delete, or restore needs one revision, an event, staged storage, and rollback.
+- Do not compare `base_revision` to the vault cursor, add automatic conflict
+  merging, or sync ignored/conflict paths.
+- Do not modify applied Alembic revisions or use raw DDL instead of a migration.

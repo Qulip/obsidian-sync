@@ -1,6 +1,7 @@
 package client
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -66,7 +67,23 @@ type FileContentData struct {
 	Revision    int    `json:"revision"`
 	ContentHash string `json:"content_hash"`
 	Content     string `json:"content"`
+	Encoding    string `json:"encoding"`
 	Deleted     bool   `json:"deleted"`
+}
+
+// DecodedContent returns the file content as raw bytes, decoding it first
+// when the server sent it as base64 (attachments such as images/PDFs). The
+// server hashes content_hash over these raw bytes, so callers must hash and
+// write this return value rather than the raw Content string.
+func (f FileContentData) DecodedContent() ([]byte, error) {
+	if f.Encoding == "base64" {
+		decoded, err := base64.StdEncoding.DecodeString(f.Content)
+		if err != nil {
+			return nil, fmt.Errorf("decode base64 content: %w", err)
+		}
+		return decoded, nil
+	}
+	return []byte(f.Content), nil
 }
 
 type PutFileRequest struct {
@@ -74,6 +91,10 @@ type PutFileRequest struct {
 	BaseRevision int    `json:"base_revision"`
 	ContentHash  string `json:"content_hash"`
 	Content      string `json:"content"`
+	// Encoding is "base64" for attachments, or empty/"utf8" for markdown.
+	// omitempty lets markdown pushes omit the field entirely so the server
+	// applies its own "utf8" default rather than rejecting an explicit "".
+	Encoding string `json:"encoding,omitempty"`
 }
 
 type PutFileData struct {

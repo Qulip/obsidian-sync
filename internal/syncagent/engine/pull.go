@@ -9,6 +9,7 @@ import (
 	"github.com/Qulip/obsidian-sync/internal/syncagent/client"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/conflict"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/manifest"
+	"github.com/Qulip/obsidian-sync/internal/syncagent/rules"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/vaultfs"
 )
 
@@ -53,7 +54,12 @@ func (r *syncRun) pull(deviceID string) error {
 }
 
 func (r *syncRun) applyChange(item client.SyncChangeItem) error {
-	_, ok := vaultPath(r.cfg.VaultRoot, item.Path)
+	if !r.cfg.SyncAttachments && rules.IsAttachmentPath(item.Path) {
+		// Attachment sync is opt-in (docs/sync-agent.md); this is expected
+		// and not worth a warning on every run when it's disabled.
+		return nil
+	}
+	_, ok := vaultPath(r.cfg.VaultRoot, item.Path, r.cfg.SyncAttachments)
 	if !ok {
 		r.summary.Warnings = append(r.summary.Warnings, "rejected unsafe server path: "+item.Path)
 		return nil
@@ -99,9 +105,35 @@ func (r *syncRun) applyDelete(change pullChange) error {
 		r.summary.LocallyDeleted++
 		return nil
 	}
+	if err := r.writeDeleteConflict(change); err != nil {
+		return err
+	}
+	r.state.Conflicts[change.item.Path] = manifest.Conflict{
+		ServerRevision:    change.item.Revision,
+		ServerContentHash: change.item.ContentHash,
+		LocalContentHash:  localHash,
+		ServerDeleted:     true,
+	}
+	r.summary.Conflicts = append(r.summary.Conflicts, change.item.Path)
+	return nil
+}
+
+func (r *syncRun) writeDeleteConflict(change pullChange) error {
 	localContent, err := os.ReadFile(change.destination)
 	if err != nil {
 		return fmt.Errorf("read local file %s: %w", change.item.Path, err)
+	}
+	if rules.IsAttachmentPath(change.item.Path) {
+		if _, err := conflict.WriteBinaryFile(conflict.BinaryRequest{
+			VaultRoot: r.cfg.VaultRoot,
+			Path:      change.item.Path,
+			DeviceID:  r.cfg.DeviceID,
+			Content:   localContent,
+			Now:       r.now(),
+		}); err != nil {
+			return fmt.Errorf("write conflict file %s: %w", change.item.Path, err)
+		}
+		return nil
 	}
 	if _, err := conflict.WriteFile(conflict.Request{
 		VaultRoot:          r.cfg.VaultRoot,
@@ -115,13 +147,6 @@ func (r *syncRun) applyDelete(change pullChange) error {
 	}); err != nil {
 		return fmt.Errorf("write conflict file %s: %w", change.item.Path, err)
 	}
-	r.state.Conflicts[change.item.Path] = manifest.Conflict{
-		ServerRevision:    change.item.Revision,
-		ServerContentHash: change.item.ContentHash,
-		LocalContentHash:  localHash,
-		ServerDeleted:     true,
-	}
-	r.summary.Conflicts = append(r.summary.Conflicts, change.item.Path)
 	return nil
 }
 
@@ -130,7 +155,12 @@ func (r *syncRun) applyWrite(change pullChange) error {
 	if err != nil {
 		return fmt.Errorf("get server file %s: %w", change.item.Path, err)
 	}
-	if hashText(serverFile.Content) != serverFile.ContentHash {
+	contentBytes, err := serverFile.DecodedContent()
+	if err != nil {
+		r.summary.Warnings = append(r.summary.Warnings, "invalid server content encoding for "+change.item.Path+"; skipped")
+		return nil
+	}
+	if hashBytes(contentBytes) != serverFile.ContentHash {
 		r.summary.Warnings = append(r.summary.Warnings, "server content hash mismatch for "+change.item.Path+"; skipped")
 		return nil
 	}
@@ -143,7 +173,7 @@ func (r *syncRun) applyWrite(change pullChange) error {
 			return r.writePullConflict(change, localHash, serverFile)
 		}
 	}
-	if err := atomicfile.WriteText(change.destination, serverFile.Content); err != nil {
+	if err := atomicfile.WriteBytes(change.destination, contentBytes); err != nil {
 		return fmt.Errorf("write local file %s: %w", change.item.Path, err)
 	}
 	r.state.Files[change.item.Path] = manifest.Entry{
@@ -157,21 +187,37 @@ func (r *syncRun) applyWrite(change pullChange) error {
 }
 
 func (r *syncRun) writePullConflict(change pullChange, localHash string, serverFile client.FileContentData) error {
-	localContent, err := os.ReadFile(change.destination)
-	if err != nil {
-		return fmt.Errorf("read local file %s: %w", change.item.Path, err)
-	}
-	if _, err := conflict.WriteFile(conflict.Request{
-		VaultRoot:          r.cfg.VaultRoot,
-		Path:               change.item.Path,
-		DeviceID:           r.cfg.DeviceID,
-		ClientBaseRevision: baseRevision(change.entry, change.tracked),
-		ServerRevision:     change.item.Revision,
-		LocalContent:       string(localContent),
-		ServerContent:      serverFile.Content,
-		Now:                r.now(),
-	}); err != nil {
-		return fmt.Errorf("write conflict file %s: %w", change.item.Path, err)
+	if rules.IsAttachmentPath(change.item.Path) {
+		contentBytes, err := serverFile.DecodedContent()
+		if err != nil {
+			return fmt.Errorf("decode server file %s: %w", change.item.Path, err)
+		}
+		if _, err := conflict.WriteBinaryFile(conflict.BinaryRequest{
+			VaultRoot: r.cfg.VaultRoot,
+			Path:      change.item.Path,
+			DeviceID:  r.cfg.DeviceID,
+			Content:   contentBytes,
+			Now:       r.now(),
+		}); err != nil {
+			return fmt.Errorf("write conflict file %s: %w", change.item.Path, err)
+		}
+	} else {
+		localContent, err := os.ReadFile(change.destination)
+		if err != nil {
+			return fmt.Errorf("read local file %s: %w", change.item.Path, err)
+		}
+		if _, err := conflict.WriteFile(conflict.Request{
+			VaultRoot:          r.cfg.VaultRoot,
+			Path:               change.item.Path,
+			DeviceID:           r.cfg.DeviceID,
+			ClientBaseRevision: baseRevision(change.entry, change.tracked),
+			ServerRevision:     change.item.Revision,
+			LocalContent:       string(localContent),
+			ServerContent:      serverFile.Content,
+			Now:                r.now(),
+		}); err != nil {
+			return fmt.Errorf("write conflict file %s: %w", change.item.Path, err)
+		}
 	}
 	r.state.Conflicts[change.item.Path] = manifest.Conflict{
 		ServerRevision:    serverFile.Revision,

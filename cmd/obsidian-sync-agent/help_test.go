@@ -68,6 +68,9 @@ func TestRun_printsDoubleDashHelp_whenCommandHelpRequested(t *testing.T) {
 				"--verbose",
 				"--dry-run",
 				"--require-obsidian-refresh",
+				"--sync-attachments",
+				"--no-sync-attachments",
+				"--attachment-max-bytes",
 			},
 		},
 		{

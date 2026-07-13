@@ -92,11 +92,12 @@ func (r *syncRun) run() error {
 	for _, path := range r.summary.Conflicts {
 		skipPaths[path] = struct{}{}
 	}
-	scanned, err := scanner.ScanVault(r.cfg.VaultRoot)
+	scanned, excluded, scanWarnings, err := scanner.ScanVault(r.cfg.VaultRoot, r.cfg.SyncAttachments, r.cfg.AttachmentMaxBytes)
 	if err != nil {
 		return fmt.Errorf("scan vault: %w", err)
 	}
-	local := scanner.ClassifyLocalChanges(scanned, *r.state)
+	r.summary.Warnings = append(r.summary.Warnings, scanWarnings...)
+	local := scanner.ClassifyLocalChanges(scanned, excluded, *r.state, r.cfg.SyncAttachments)
 	if err := r.push(local, skipPaths); err != nil {
 		return err
 	}
@@ -119,11 +120,12 @@ func (r *syncRun) plan() (Summary, error) {
 		}
 		cursor = page.ToCursor
 	}
-	scanned, err := scanner.ScanVault(r.cfg.VaultRoot)
+	scanned, excluded, scanWarnings, err := scanner.ScanVault(r.cfg.VaultRoot, r.cfg.SyncAttachments, r.cfg.AttachmentMaxBytes)
 	if err != nil {
 		return *r.summary, fmt.Errorf("scan vault: %w", err)
 	}
-	local := scanner.ClassifyLocalChanges(scanned, *r.state)
+	r.summary.Warnings = append(r.summary.Warnings, scanWarnings...)
+	local := scanner.ClassifyLocalChanges(scanned, excluded, *r.state, r.cfg.SyncAttachments)
 	r.summary.Pushed = len(local.New) + len(local.Modified)
 	r.summary.RemotelyDeleted = len(local.Deleted)
 	return *r.summary, nil

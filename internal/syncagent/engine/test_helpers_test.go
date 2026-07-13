@@ -2,6 +2,7 @@ package engine
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -31,6 +32,13 @@ func testConfig(root string) config.AgentConfig {
 	}
 }
 
+func testConfigWithAttachments(root string) config.AgentConfig {
+	cfg := testConfig(root)
+	cfg.SyncAttachments = true
+	cfg.AttachmentMaxBytes = config.DefaultAttachmentMaxBytes
+	return cfg
+}
+
 type changeSpec struct {
 	revision    int
 	path        string
@@ -57,6 +65,22 @@ func fileData(revision int, path string, content string) client.FileContentData 
 		Revision:    revision,
 		ContentHash: testHashText(content),
 		Content:     content,
+		Deleted:     false,
+	}
+}
+
+// fileDataBase64 mirrors the server's attachment response shape: content_hash
+// is computed over the raw (decoded) bytes, while Content carries the
+// base64-encoded string, as produced by revision_sync.py's
+// _encode_response_content for image/PDF paths.
+func fileDataBase64(revision int, path string, raw []byte) client.FileContentData {
+	return client.FileContentData{
+		VaultID:     "vault",
+		Path:        path,
+		Revision:    revision,
+		ContentHash: testHashBytes(raw),
+		Content:     base64.StdEncoding.EncodeToString(raw),
+		Encoding:    "base64",
 		Deleted:     false,
 	}
 }
@@ -127,7 +151,11 @@ func loadManifest(t *testing.T, root string) manifest.Manifest {
 }
 
 func testHashText(content string) string {
-	sum := sha256.Sum256([]byte(content))
+	return testHashBytes([]byte(content))
+}
+
+func testHashBytes(data []byte) string {
+	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 

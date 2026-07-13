@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/Qulip/obsidian-sync/internal/syncagent/client"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/conflict"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/manifest"
+	"github.com/Qulip/obsidian-sync/internal/syncagent/rules"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/scanner"
 )
 
@@ -60,7 +62,7 @@ func (r *syncRun) modifiedBase(path string) (int, bool, error) {
 	if !hasConflict {
 		return baseRevision(entry, tracked), true, nil
 	}
-	destination, ok := vaultPath(r.cfg.VaultRoot, path)
+	destination, ok := vaultPath(r.cfg.VaultRoot, path, r.cfg.SyncAttachments)
 	if !ok {
 		return 0, false, fmt.Errorf("%w: unsafe local path %s", ErrSync, path)
 	}
@@ -75,7 +77,7 @@ func (r *syncRun) modifiedBase(path string) (int, bool, error) {
 }
 
 func (r *syncRun) pushUpsert(file pushFile) error {
-	destination, ok := vaultPath(r.cfg.VaultRoot, file.path)
+	destination, ok := vaultPath(r.cfg.VaultRoot, file.path, r.cfg.SyncAttachments)
 	if !ok {
 		return fmt.Errorf("%w: unsafe local path %s", ErrSync, file.path)
 	}
@@ -83,18 +85,23 @@ func (r *syncRun) pushUpsert(file pushFile) error {
 	if err != nil {
 		return fmt.Errorf("read local file %s: %w", file.path, err)
 	}
-	contentText := string(content)
-	contentHash := hashText(contentText)
-	result, err := r.syncClient.PutFile(r.ctx, client.FileRef{VaultID: r.cfg.VaultID, Path: file.path}, client.PutFileRequest{
+	contentHash := hashBytes(content)
+	putRequest := client.PutFileRequest{
 		DeviceID:     r.cfg.DeviceID,
 		BaseRevision: file.base,
 		ContentHash:  contentHash,
-		Content:      contentText,
-	})
+	}
+	if rules.IsAttachmentPath(file.path) {
+		putRequest.Content = base64.StdEncoding.EncodeToString(content)
+		putRequest.Encoding = "base64"
+	} else {
+		putRequest.Content = string(content)
+	}
+	result, err := r.syncClient.PutFile(r.ctx, client.FileRef{VaultID: r.cfg.VaultID, Path: file.path}, putRequest)
 	if err != nil {
 		var conflictErr *client.ConflictError
 		if errors.As(err, &conflictErr) {
-			return r.pushConflict(pushFile{path: file.path, localText: contentText, conflictErr: conflictErr})
+			return r.pushConflict(pushFile{path: file.path, localText: string(content), conflictErr: conflictErr})
 		}
 		return fmt.Errorf("put file %s: %w", file.path, err)
 	}
@@ -138,6 +145,9 @@ func (r *syncRun) pushDelete(path string) error {
 }
 
 func (r *syncRun) pushConflict(file pushFile) error {
+	if rules.IsAttachmentPath(file.path) {
+		return r.pushAttachmentConflict(file.path)
+	}
 	serverRevision := intDetail(file.conflictErr.Details["server_revision"])
 	clientBase := intDetail(file.conflictErr.Details["client_base_revision"])
 	serverContent, err := r.serverContentAfterConflict(file.path)
@@ -157,6 +167,43 @@ func (r *syncRun) pushConflict(file pushFile) error {
 		return fmt.Errorf("write conflict file %s: %w", file.path, err)
 	}
 	r.summary.Conflicts = append(r.summary.Conflicts, file.path)
+	return nil
+}
+
+// pushAttachmentConflict handles a 409 on an attachment PUT/DELETE. Unlike
+// markdown, there's no text placeholder for "the server copy is gone"; when
+// the server has nothing to show, we still surface the conflict but can't
+// write a comparison file.
+func (r *syncRun) pushAttachmentConflict(path string) error {
+	serverFile, err := r.syncClient.GetFile(r.ctx, client.FileRef{VaultID: r.cfg.VaultID, Path: path})
+	if err != nil {
+		var apiErr *client.APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+			return fmt.Errorf("%w: get server file %s after conflict: %w", ErrSync, path, err)
+		}
+		r.summary.Warnings = append(r.summary.Warnings, "push conflict on deleted server attachment "+path+"; resolve manually")
+		r.summary.Conflicts = append(r.summary.Conflicts, path)
+		return nil
+	}
+	if serverFile.Deleted {
+		r.summary.Warnings = append(r.summary.Warnings, "push conflict on deleted server attachment "+path+"; resolve manually")
+		r.summary.Conflicts = append(r.summary.Conflicts, path)
+		return nil
+	}
+	contentBytes, err := serverFile.DecodedContent()
+	if err != nil {
+		return fmt.Errorf("decode server file %s after conflict: %w", path, err)
+	}
+	if _, err := conflict.WriteBinaryFile(conflict.BinaryRequest{
+		VaultRoot: r.cfg.VaultRoot,
+		Path:      path,
+		DeviceID:  r.cfg.DeviceID,
+		Content:   contentBytes,
+		Now:       r.now(),
+	}); err != nil {
+		return fmt.Errorf("write conflict file %s: %w", path, err)
+	}
+	r.summary.Conflicts = append(r.summary.Conflicts, path)
 	return nil
 }
 

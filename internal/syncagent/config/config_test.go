@@ -222,6 +222,150 @@ func TestLoadConfig_rejectsMissingVaultID(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_syncAttachmentsDefaults(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url": "https://file.example",
+		"vault_id":        "file-vault",
+	})
+	clearConfigEnv(t)
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.SyncAttachments {
+		t.Fatal("SyncAttachments = true, want false by default")
+	}
+	if got.AttachmentMaxBytes != DefaultAttachmentMaxBytes {
+		t.Fatalf("AttachmentMaxBytes = %d, want %d", got.AttachmentMaxBytes, DefaultAttachmentMaxBytes)
+	}
+}
+
+func TestLoadConfig_syncAttachmentsFromFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url":      "https://file.example",
+		"vault_id":             "file-vault",
+		"sync_attachments":     true,
+		"attachment_max_bytes": 12345,
+	})
+	clearConfigEnv(t)
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !got.SyncAttachments {
+		t.Fatal("SyncAttachments = false, want true from file")
+	}
+	if got.AttachmentMaxBytes != 12345 {
+		t.Fatalf("AttachmentMaxBytes = %d, want 12345", got.AttachmentMaxBytes)
+	}
+}
+
+func TestLoadConfig_syncAttachmentsEnvOverridesFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url":  "https://file.example",
+		"vault_id":         "file-vault",
+		"sync_attachments": false,
+	})
+	clearConfigEnv(t)
+	t.Setenv(SyncAttachmentsEnv, "true")
+	t.Setenv(AttachmentMaxBytesEnv, "999")
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !got.SyncAttachments {
+		t.Fatal("SyncAttachments = false, want true from env")
+	}
+	if got.AttachmentMaxBytes != 999 {
+		t.Fatalf("AttachmentMaxBytes = %d, want 999", got.AttachmentMaxBytes)
+	}
+}
+
+func TestLoadConfig_syncAttachmentsCLIOverridesEnvAndFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url":  "https://file.example",
+		"vault_id":         "file-vault",
+		"sync_attachments": true,
+	})
+	clearConfigEnv(t)
+	t.Setenv(SyncAttachmentsEnv, "true")
+
+	// When
+	got, err := Load(CLIOverrides{
+		VaultRoot:                  root,
+		SyncAttachments:            false,
+		HasSyncAttachmentsOverride: true,
+	})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.SyncAttachments {
+		t.Fatal("SyncAttachments = true, want false from CLI override")
+	}
+}
+
+func TestLoadConfig_rejectsInvalidSyncAttachmentsEnv(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearConfigEnv(t)
+	t.Setenv(ServerEnv, "https://env.example")
+	t.Setenv(VaultIDEnv, "env-vault")
+	t.Setenv(SyncAttachmentsEnv, "not-a-bool")
+
+	// When
+	_, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err == nil {
+		t.Fatal("Load() error = nil")
+	}
+	if !IsConfigError(err) {
+		t.Fatalf("Load() error type = %T", err)
+	}
+}
+
+func TestLoadConfig_rejectsNonPositiveAttachmentMaxBytes(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearConfigEnv(t)
+	t.Setenv(ServerEnv, "https://env.example")
+	t.Setenv(VaultIDEnv, "env-vault")
+	t.Setenv(AttachmentMaxBytesEnv, "0")
+
+	// When
+	_, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err == nil {
+		t.Fatal("Load() error = nil")
+	}
+	if !IsConfigError(err) {
+		t.Fatalf("Load() error type = %T", err)
+	}
+}
+
 func TestLoadConfig_usesEnvVaultRootAndDefaultObsidianValues(t *testing.T) {
 	// Given
 	root := t.TempDir()
@@ -281,6 +425,8 @@ func clearConfigEnv(t *testing.T) {
 		DeviceNameEnv,
 		TokenEnv,
 		ObsidianKeyEnv,
+		SyncAttachmentsEnv,
+		AttachmentMaxBytesEnv,
 	} {
 		t.Setenv(name, "")
 	}

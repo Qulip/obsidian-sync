@@ -10,8 +10,8 @@ import (
 	"github.com/Qulip/obsidian-sync/internal/syncagent/vaultfs"
 )
 
-func vaultPath(root string, rel string) (string, bool) {
-	if !rules.ShouldSync(rel) {
+func vaultPath(root string, rel string, syncAttachments bool) (string, bool) {
+	if !rules.ShouldSync(rel, syncAttachments) {
 		return "", false
 	}
 	return vaultfs.LexicalPath(root, rel)
@@ -27,11 +27,11 @@ func hashFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return hashText(string(data)), nil
+	return hashBytes(data), nil
 }
 
-func hashText(content string) string {
-	sum := sha256.Sum256([]byte(content))
+func hashBytes(data []byte) string {
+	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 

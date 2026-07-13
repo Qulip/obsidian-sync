@@ -59,6 +59,44 @@ func TestRunSyncPullWriteDeleteAndCursor(t *testing.T) {
 	}
 }
 
+func TestRunSyncPullsBase64Attachment(t *testing.T) {
+	// Given
+	vault := newVaultFixture(t)
+	saveManifest(t, vault.root, manifest.Manifest{
+		VaultID:        "vault",
+		DeviceID:       "dev",
+		LastSyncCursor: 0,
+		Files:          map[string]manifest.Entry{},
+		Conflicts:      map[string]manifest.Conflict{},
+	})
+	raw := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0xff}
+	fake := newFakeClient()
+	fake.files["image.png"] = fileDataBase64(2, "image.png", raw)
+	fake.changes = []client.SyncChangeItem{
+		syncChange(changeSpec{revision: 2, path: "image.png", eventType: "CREATE", contentHash: stringPtr(testHashBytes(raw))}),
+	}
+
+	// When
+	summary, err := RunSync(context.Background(), testConfigWithAttachments(vault.root), Options{
+		Client: fake,
+		Now:    fixedNow,
+	})
+
+	// Then
+	requireNoError(t, err)
+	if summary.Applied != 1 {
+		t.Fatalf("summary.Applied = %d, want 1", summary.Applied)
+	}
+	if len(summary.Warnings) != 0 {
+		t.Fatalf("summary.Warnings = %#v, want none", summary.Warnings)
+	}
+	vault.requireFileContent("image.png", string(raw))
+	state := loadManifest(t, vault.root)
+	if state.Files["image.png"].ContentHash != testHashBytes(raw) {
+		t.Fatalf("image.png tracked hash = %q, want %q", state.Files["image.png"].ContentHash, testHashBytes(raw))
+	}
+}
+
 func TestRunSyncCreateUpdateDelete(t *testing.T) {
 	// Given
 	vault := newVaultFixture(t)
@@ -134,6 +172,132 @@ func TestRunSyncConflictDoesNotAutoMerge(t *testing.T) {
 	body := readFile(t, conflicts[0])
 	if !containsAll(body, "local v2", "server v2", "- Server revision: 2") {
 		t.Fatalf("conflict body missing expected content:\n%s", body)
+	}
+}
+
+func TestRunSyncAttachmentConflictDoesNotAutoMerge(t *testing.T) {
+	// Given
+	vault := newVaultFixture(t)
+	localRaw := []byte{0x01, 0x02, 0x03}
+	serverRaw := []byte{0x09, 0x08, 0x07}
+	vault.writeNote("Images/diagram.png", string(localRaw))
+	saveManifest(t, vault.root, manifest.Manifest{
+		VaultID:        "vault",
+		DeviceID:       "dev",
+		LastSyncCursor: 1,
+		Files: map[string]manifest.Entry{
+			"Images/diagram.png": {ServerRevision: 1, ContentHash: testHashBytes([]byte{0x00}), LastSyncedAt: fixedNowString},
+		},
+		Conflicts: map[string]manifest.Conflict{},
+	})
+	fake := newFakeClient()
+	fake.files["Images/diagram.png"] = fileDataBase64(2, "Images/diagram.png", serverRaw)
+	fake.changes = []client.SyncChangeItem{
+		syncChange(changeSpec{revision: 2, path: "Images/diagram.png", eventType: "UPDATE", contentHash: stringPtr(testHashBytes(serverRaw))}),
+	}
+
+	// When
+	summary, err := RunSync(context.Background(), testConfigWithAttachments(vault.root), Options{
+		Client: fake,
+		Now:    fixedNow,
+	})
+
+	// Then
+	requireNoError(t, err)
+	if len(summary.Conflicts) != 1 || summary.Conflicts[0] != "Images/diagram.png" {
+		t.Fatalf("conflicts = %#v", summary.Conflicts)
+	}
+	vault.requireFileContent("Images/diagram.png", string(localRaw))
+	matches, err := filepath.Glob(filepath.Join(vault.root, "Images", "*.conflict.*.png"))
+	if err != nil {
+		t.Fatalf("Glob() error = %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("conflict file count = %d, want 1 (%v)", len(matches), matches)
+	}
+	if readFile(t, matches[0]) != string(serverRaw) {
+		t.Fatalf("conflict file content = %q, want server bytes %q", readFile(t, matches[0]), string(serverRaw))
+	}
+}
+
+func TestRunSyncAttachmentDeleteConflictBacksUpLocalBytes(t *testing.T) {
+	// Given
+	vault := newVaultFixture(t)
+	localRaw := []byte{0x01, 0x02, 0x03}
+	vault.writeNote("Images/diagram.png", string(localRaw))
+	saveManifest(t, vault.root, manifest.Manifest{
+		VaultID:        "vault",
+		DeviceID:       "dev",
+		LastSyncCursor: 1,
+		Files: map[string]manifest.Entry{
+			"Images/diagram.png": {ServerRevision: 1, ContentHash: testHashBytes([]byte{0x00}), LastSyncedAt: fixedNowString},
+		},
+		Conflicts: map[string]manifest.Conflict{},
+	})
+	fake := newFakeClient()
+	fake.changes = []client.SyncChangeItem{
+		syncChange(changeSpec{revision: 2, path: "Images/diagram.png", eventType: "DELETE", deleted: true}),
+	}
+
+	// When
+	summary, err := RunSync(context.Background(), testConfigWithAttachments(vault.root), Options{
+		Client: fake,
+		Now:    fixedNow,
+	})
+
+	// Then
+	requireNoError(t, err)
+	if len(summary.Conflicts) != 1 || summary.Conflicts[0] != "Images/diagram.png" {
+		t.Fatalf("conflicts = %#v", summary.Conflicts)
+	}
+	if !exists(filepath.Join(vault.root, "Images", "diagram.png")) {
+		t.Fatal("original diagram.png was removed, want it kept")
+	}
+	matches, err := filepath.Glob(filepath.Join(vault.root, "Images", "*.conflict.*.png"))
+	if err != nil {
+		t.Fatalf("Glob() error = %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("conflict file count = %d, want 1 (%v)", len(matches), matches)
+	}
+	if readFile(t, matches[0]) != string(localRaw) {
+		t.Fatalf("conflict file content = %q, want local bytes %q", readFile(t, matches[0]), string(localRaw))
+	}
+}
+
+func TestRunSyncSkipsAttachmentChanges_whenSyncAttachmentsDisabled(t *testing.T) {
+	// Given
+	vault := newVaultFixture(t)
+	saveManifest(t, vault.root, manifest.Manifest{
+		VaultID:        "vault",
+		DeviceID:       "dev",
+		LastSyncCursor: 0,
+		Files:          map[string]manifest.Entry{},
+		Conflicts:      map[string]manifest.Conflict{},
+	})
+	raw := []byte{0x01, 0x02}
+	fake := newFakeClient()
+	fake.files["Images/diagram.png"] = fileDataBase64(2, "Images/diagram.png", raw)
+	fake.changes = []client.SyncChangeItem{
+		syncChange(changeSpec{revision: 2, path: "Images/diagram.png", eventType: "CREATE", contentHash: stringPtr(testHashBytes(raw))}),
+	}
+
+	// When
+	summary, err := RunSync(context.Background(), testConfig(vault.root), Options{
+		Client: fake,
+		Now:    fixedNow,
+	})
+
+	// Then
+	requireNoError(t, err)
+	if summary.Applied != 0 {
+		t.Fatalf("summary.Applied = %d, want 0", summary.Applied)
+	}
+	if len(summary.Warnings) != 0 {
+		t.Fatalf("summary.Warnings = %#v, want none (disabled attachments should be silently skipped)", summary.Warnings)
+	}
+	if exists(filepath.Join(vault.root, "Images", "diagram.png")) {
+		t.Fatal("diagram.png was written even though sync_attachments is disabled")
 	}
 }
 

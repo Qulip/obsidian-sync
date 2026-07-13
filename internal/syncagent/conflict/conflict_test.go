@@ -156,6 +156,165 @@ func TestWriteConflictFile_writesDeletedPlaceholders_whenContentUsesPlaceholders
 	}
 }
 
+func TestAttachmentFilename_preservesOriginalExtension(t *testing.T) {
+	// Given
+	moment := time.Date(2026, 7, 7, 12, 30, 45, 0, time.UTC)
+
+	// When
+	got := AttachmentFilename("Images/diagram.png", "laptop", moment)
+
+	// Then
+	want := "diagram.conflict.laptop.20260707-123045.png"
+	if got != want {
+		t.Fatalf("AttachmentFilename() = %q, want %q", got, want)
+	}
+}
+
+func TestWriteBinaryFile_writesRawBytesWithOriginalExtension(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	moment := time.Date(2026, 7, 7, 12, 30, 45, 0, time.UTC)
+	content := []byte{0x89, 0x50, 0x4e, 0x47, 0x00, 0xff}
+
+	// When
+	got, err := WriteBinaryFile(BinaryRequest{
+		VaultRoot: root,
+		Path:      "Images/diagram.png",
+		DeviceID:  "laptop",
+		Content:   content,
+		Now:       moment,
+	})
+
+	// Then
+	if err != nil {
+		t.Fatalf("WriteBinaryFile() error = %v", err)
+	}
+	wantPath := filepath.Join(root, "Images", "diagram.conflict.laptop.20260707-123045.png")
+	if got != wantPath {
+		t.Fatalf("WriteBinaryFile() path = %q, want %q", got, wantPath)
+	}
+	body, err := os.ReadFile(got)
+	if err != nil {
+		t.Fatalf("read conflict file: %v", err)
+	}
+	if string(body) != string(content) {
+		t.Fatalf("conflict content = %v, want %v", body, content)
+	}
+}
+
+func TestWriteBinaryFile_reusesExistingFile_whenContentHashMatches(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	firstMoment := time.Date(2026, 7, 7, 12, 30, 45, 0, time.UTC)
+	secondMoment := time.Date(2026, 7, 7, 12, 31, 45, 0, time.UTC)
+	content := []byte{0x01, 0x02, 0x03}
+	first, err := WriteBinaryFile(BinaryRequest{
+		VaultRoot: root,
+		Path:      "Images/diagram.png",
+		DeviceID:  "laptop",
+		Content:   content,
+		Now:       firstMoment,
+	})
+	if err != nil {
+		t.Fatalf("first WriteBinaryFile() error = %v", err)
+	}
+
+	// When: same path, device, and content — should reuse rather than duplicate
+	second, err := WriteBinaryFile(BinaryRequest{
+		VaultRoot: root,
+		Path:      "Images/diagram.png",
+		DeviceID:  "laptop",
+		Content:   content,
+		Now:       secondMoment,
+	})
+
+	// Then
+	if err != nil {
+		t.Fatalf("second WriteBinaryFile() error = %v", err)
+	}
+	if second != first {
+		t.Fatalf("second WriteBinaryFile() path = %q, want reused %q", second, first)
+	}
+	matches, err := filepath.Glob(filepath.Join(root, "Images", "*.conflict.*.png"))
+	if err != nil {
+		t.Fatalf("glob conflicts: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("conflict file count = %d, want 1 (%v)", len(matches), matches)
+	}
+}
+
+func TestWriteBinaryFile_writesSeparateFile_whenContentDiffers(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	firstMoment := time.Date(2026, 7, 7, 12, 30, 45, 0, time.UTC)
+	secondMoment := time.Date(2026, 7, 7, 12, 31, 45, 0, time.UTC)
+	first, err := WriteBinaryFile(BinaryRequest{
+		VaultRoot: root,
+		Path:      "Images/diagram.png",
+		DeviceID:  "laptop",
+		Content:   []byte{0x01},
+		Now:       firstMoment,
+	})
+	if err != nil {
+		t.Fatalf("first WriteBinaryFile() error = %v", err)
+	}
+
+	// When: same path and device, but different content
+	second, err := WriteBinaryFile(BinaryRequest{
+		VaultRoot: root,
+		Path:      "Images/diagram.png",
+		DeviceID:  "laptop",
+		Content:   []byte{0x02},
+		Now:       secondMoment,
+	})
+
+	// Then
+	if err != nil {
+		t.Fatalf("second WriteBinaryFile() error = %v", err)
+	}
+	if second == first {
+		t.Fatalf("second WriteBinaryFile() reused path %q for different content", second)
+	}
+	matches, err := filepath.Glob(filepath.Join(root, "Images", "*.conflict.*.png"))
+	if err != nil {
+		t.Fatalf("glob conflicts: %v", err)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("conflict file count = %d, want 2 (%v)", len(matches), matches)
+	}
+}
+
+func TestWriteBinaryFile_rejectsSymlinkedParent_whenTargetIsOutsideVault(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	outsideRoot := t.TempDir()
+	if err := os.Symlink(outsideRoot, filepath.Join(root, "Images")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	// When
+	_, err := WriteBinaryFile(BinaryRequest{
+		VaultRoot: root,
+		Path:      "Images/diagram.png",
+		DeviceID:  "laptop",
+		Content:   []byte{0x01},
+		Now:       time.Date(2026, 7, 7, 12, 30, 45, 0, time.UTC),
+	})
+
+	// Then
+	if err == nil {
+		t.Fatal("WriteBinaryFile() error = nil, want symlink rejection")
+	}
+	matches, globErr := filepath.Glob(filepath.Join(outsideRoot, "*.conflict.*.png"))
+	if globErr != nil {
+		t.Fatalf("glob outside conflict files: %v", globErr)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("outside conflict files were written: %#v", matches)
+	}
+}
+
 func TestWriteConflictFile_rejectsSymlinkedParent_whenTargetIsOutsideVault(t *testing.T) {
 	// Given
 	root := t.TempDir()

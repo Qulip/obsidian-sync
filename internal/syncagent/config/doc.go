@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -15,13 +16,19 @@ const (
 	ConfigFileName         = "config.json"
 	DefaultObsidianBaseURL = "https://127.0.0.1:27124"
 
-	TokenEnv       = "OBSIDIAN_SYNC_AGENT_TOKEN"
-	ServerEnv      = "OBSIDIAN_SYNC_AGENT_SERVER"
-	VaultIDEnv     = "OBSIDIAN_SYNC_AGENT_VAULT_ID"
-	VaultRootEnv   = "OBSIDIAN_SYNC_AGENT_VAULT_ROOT"
-	DeviceIDEnv    = "OBSIDIAN_SYNC_AGENT_DEVICE_ID"
-	DeviceNameEnv  = "OBSIDIAN_SYNC_AGENT_DEVICE_NAME"
-	ObsidianKeyEnv = "OBSIDIAN_LOCAL_REST_API_KEY"
+	// DefaultAttachmentMaxBytes matches the server's PDF size cap
+	// (docs/sync-agent.md, "첨부파일 동기화 설정").
+	DefaultAttachmentMaxBytes int64 = 30_000_000
+
+	TokenEnv              = "OBSIDIAN_SYNC_AGENT_TOKEN"
+	ServerEnv             = "OBSIDIAN_SYNC_AGENT_SERVER"
+	VaultIDEnv            = "OBSIDIAN_SYNC_AGENT_VAULT_ID"
+	VaultRootEnv          = "OBSIDIAN_SYNC_AGENT_VAULT_ROOT"
+	DeviceIDEnv           = "OBSIDIAN_SYNC_AGENT_DEVICE_ID"
+	DeviceNameEnv         = "OBSIDIAN_SYNC_AGENT_DEVICE_NAME"
+	ObsidianKeyEnv        = "OBSIDIAN_LOCAL_REST_API_KEY"
+	SyncAttachmentsEnv    = "OBSIDIAN_SYNC_AGENT_SYNC_ATTACHMENTS"
+	AttachmentMaxBytesEnv = "OBSIDIAN_SYNC_AGENT_ATTACHMENT_MAX_BYTES"
 )
 
 var errConfig = errors.New("config")
@@ -55,15 +62,21 @@ type AgentConfig struct {
 	DeviceName             string
 	Obsidian               ObsidianConfig
 	RequireObsidianRefresh bool
+	SyncAttachments        bool
+	AttachmentMaxBytes     int64
 }
 
 type CLIOverrides struct {
-	VaultRoot                 string
-	VaultID                   string
-	ServerBaseURL             string
-	DeviceID                  string
-	RequireObsidianRefresh    bool
-	HasRequireRefreshOverride bool
+	VaultRoot                     string
+	VaultID                       string
+	ServerBaseURL                 string
+	DeviceID                      string
+	RequireObsidianRefresh        bool
+	HasRequireRefreshOverride     bool
+	SyncAttachments               bool
+	HasSyncAttachmentsOverride    bool
+	AttachmentMaxBytes            int64
+	HasAttachmentMaxBytesOverride bool
 }
 
 type fileConfig struct {
@@ -73,6 +86,8 @@ type fileConfig struct {
 	DeviceName             string              `json:"device_name"`
 	RequireObsidianRefresh *bool               `json:"require_obsidian_refresh"`
 	Obsidian               *fileObsidianConfig `json:"obsidian"`
+	SyncAttachments        *bool               `json:"sync_attachments"`
+	AttachmentMaxBytes     *int64              `json:"attachment_max_bytes"`
 }
 
 type fileObsidianConfig struct {
@@ -113,6 +128,15 @@ func Load(overrides CLIOverrides) (AgentConfig, error) {
 		deviceID = defaultDeviceID()
 	}
 
+	syncAttachments, err := resolveSyncAttachments(overrides, fileData)
+	if err != nil {
+		return AgentConfig{}, err
+	}
+	attachmentMaxBytes, err := resolveAttachmentMaxBytes(overrides, fileData)
+	if err != nil {
+		return AgentConfig{}, err
+	}
+
 	return AgentConfig{
 		ServerBaseURL:          strings.TrimRight(server, "/"),
 		VaultID:                vaultID,
@@ -122,6 +146,8 @@ func Load(overrides CLIOverrides) (AgentConfig, error) {
 		DeviceName:             pickString(os.Getenv(DeviceNameEnv), fileData.DeviceName),
 		Obsidian:               obsidianFromFile(fileData),
 		RequireObsidianRefresh: requireObsidianRefresh(overrides, fileData),
+		SyncAttachments:        syncAttachments,
+		AttachmentMaxBytes:     attachmentMaxBytes,
 	}, nil
 }
 
@@ -222,6 +248,47 @@ func requireObsidianRefresh(overrides CLIOverrides, data fileConfig) bool {
 		return *data.RequireObsidianRefresh
 	}
 	return false
+}
+
+func resolveSyncAttachments(overrides CLIOverrides, data fileConfig) (bool, error) {
+	if overrides.HasSyncAttachmentsOverride {
+		return overrides.SyncAttachments, nil
+	}
+	if raw := os.Getenv(SyncAttachmentsEnv); raw != "" {
+		value, err := strconv.ParseBool(raw)
+		if err != nil {
+			return false, newConfigError("invalid %s value %q: must be a boolean", SyncAttachmentsEnv, raw)
+		}
+		return value, nil
+	}
+	if data.SyncAttachments != nil {
+		return *data.SyncAttachments, nil
+	}
+	return false, nil
+}
+
+func resolveAttachmentMaxBytes(overrides CLIOverrides, data fileConfig) (int64, error) {
+	if overrides.HasAttachmentMaxBytesOverride {
+		return validateAttachmentMaxBytes(overrides.AttachmentMaxBytes)
+	}
+	if raw := os.Getenv(AttachmentMaxBytesEnv); raw != "" {
+		value, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return 0, newConfigError("invalid %s value %q: must be an integer", AttachmentMaxBytesEnv, raw)
+		}
+		return validateAttachmentMaxBytes(value)
+	}
+	if data.AttachmentMaxBytes != nil {
+		return validateAttachmentMaxBytes(*data.AttachmentMaxBytes)
+	}
+	return DefaultAttachmentMaxBytes, nil
+}
+
+func validateAttachmentMaxBytes(value int64) (int64, error) {
+	if value <= 0 {
+		return 0, newConfigError("attachment_max_bytes must be greater than zero, got %d", value)
+	}
+	return value, nil
 }
 
 func defaultDeviceID() string {

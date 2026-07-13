@@ -5,10 +5,13 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Qulip/obsidian-sync/internal/syncagent/manifest"
 )
+
+const testAttachmentMaxBytes = int64(30_000_000)
 
 func TestScanVault_hashesOnlySyncableMarkdownFiles(t *testing.T) {
 	// Given
@@ -21,11 +24,14 @@ func TestScanVault_hashesOnlySyncableMarkdownFiles(t *testing.T) {
 	writeFile(t, vaultRoot, "notes/a.conflict.dev.20260707-000000.md", "conflict")
 
 	// When
-	got, err := ScanVault(vaultRoot)
+	got, _, warnings, err := ScanVault(vaultRoot, false, testAttachmentMaxBytes)
 
 	// Then
 	if err != nil {
 		t.Fatalf("ScanVault returned error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %#v", warnings)
 	}
 	if len(got) != 1 {
 		t.Fatalf("scanned = %#v", got)
@@ -53,7 +59,7 @@ func TestScanVault_skipsSymlinkedMarkdownFile_whenTargetIsOutsideVault(t *testin
 	writeFile(t, vaultRoot, "kept.md", "kept")
 
 	// When
-	got, err := ScanVault(vaultRoot)
+	got, _, _, err := ScanVault(vaultRoot, false, testAttachmentMaxBytes)
 
 	// Then
 	if err != nil {
@@ -64,6 +70,54 @@ func TestScanVault_skipsSymlinkedMarkdownFile_whenTargetIsOutsideVault(t *testin
 	}
 	if got["kept.md"].ContentHash != sha256Text("kept") {
 		t.Fatalf("kept.md hash = %q", got["kept.md"].ContentHash)
+	}
+}
+
+func TestScanVault_includesAttachments_whenEnabled(t *testing.T) {
+	// Given
+	vaultRoot := t.TempDir()
+	writeFile(t, vaultRoot, "notes/a.md", "kept")
+	writeFile(t, vaultRoot, "Images/photo.png", "binary")
+
+	// When
+	got, _, warnings, err := ScanVault(vaultRoot, true, testAttachmentMaxBytes)
+
+	// Then
+	if err != nil {
+		t.Fatalf("ScanVault returned error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %#v", warnings)
+	}
+	if len(got) != 2 {
+		t.Fatalf("scanned = %#v", got)
+	}
+	if got["Images/photo.png"].ContentHash != sha256Text("binary") {
+		t.Fatalf("Images/photo.png hash = %q", got["Images/photo.png"].ContentHash)
+	}
+}
+
+func TestScanVault_skipsOversizedAttachmentWithWarning(t *testing.T) {
+	// Given
+	vaultRoot := t.TempDir()
+	writeFile(t, vaultRoot, "Images/small.png", "ok")
+	writeFile(t, vaultRoot, "Images/big.png", "too big for the limit")
+
+	// When
+	got, _, warnings, err := ScanVault(vaultRoot, true, int64(len("too big for the limit"))-1)
+
+	// Then
+	if err != nil {
+		t.Fatalf("ScanVault returned error: %v", err)
+	}
+	if _, ok := got["Images/big.png"]; ok {
+		t.Fatalf("oversized attachment was scanned: %#v", got)
+	}
+	if _, ok := got["Images/small.png"]; !ok {
+		t.Fatalf("small.png missing from scan: %#v", got)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "Images/big.png") {
+		t.Fatalf("warnings = %#v", warnings)
 	}
 }
 
@@ -87,7 +141,7 @@ func TestClassifyLocalChanges_sortsNewModifiedDeleted(t *testing.T) {
 	}
 
 	// When
-	got := ClassifyLocalChanges(scanned, state)
+	got := ClassifyLocalChanges(scanned, nil, state, true)
 
 	// Then
 	wantNew := []string{"a-new.md", "z-new.md"}

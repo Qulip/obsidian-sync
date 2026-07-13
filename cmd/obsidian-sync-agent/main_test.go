@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -189,6 +190,132 @@ func TestRunStatus_usesCLIValuesBeforeNetworkStatus(t *testing.T) {
 	}
 	if !strings.Contains(gotPath, "cli-vault") {
 		t.Fatalf("request path = %q", gotPath)
+	}
+}
+
+func TestCommandOptions_overrides_syncAttachments(t *testing.T) {
+	tests := []struct {
+		name                string
+		options             commandOptions
+		wantSyncAttachments bool
+		wantHasOverride     bool
+	}{
+		{
+			name:                "neither flag set",
+			options:             commandOptions{},
+			wantSyncAttachments: false,
+			wantHasOverride:     false,
+		},
+		{
+			name:                "sync-attachments set",
+			options:             commandOptions{syncAttachments: true},
+			wantSyncAttachments: true,
+			wantHasOverride:     true,
+		},
+		{
+			name:                "no-sync-attachments set",
+			options:             commandOptions{noSyncAttachments: true},
+			wantSyncAttachments: false,
+			wantHasOverride:     true,
+		},
+		{
+			name:                "both set, no wins",
+			options:             commandOptions{syncAttachments: true, noSyncAttachments: true},
+			wantSyncAttachments: false,
+			wantHasOverride:     true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.options.overrides(false)
+			if got.SyncAttachments != tt.wantSyncAttachments {
+				t.Fatalf("SyncAttachments = %v, want %v", got.SyncAttachments, tt.wantSyncAttachments)
+			}
+			if got.HasSyncAttachmentsOverride != tt.wantHasOverride {
+				t.Fatalf("HasSyncAttachmentsOverride = %v, want %v", got.HasSyncAttachmentsOverride, tt.wantHasOverride)
+			}
+		})
+	}
+}
+
+func TestParseCommand_setsAttachmentMaxBytesOverride_onlyWhenFlagPassed(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	// When flag is passed
+	options, ok := parseCommand(commandSpec{name: "sync", includeSyncFlags: true}, []string{"--attachment-max-bytes", "42"}, commandIO{stdout: &stdout, stderr: &stderr})
+
+	// Then
+	if !ok {
+		t.Fatalf("parseCommand() ok = false, stderr = %q", stderr.String())
+	}
+	overrides := options.overrides(false)
+	if !overrides.HasAttachmentMaxBytesOverride || overrides.AttachmentMaxBytes != 42 {
+		t.Fatalf("overrides = %#v", overrides)
+	}
+
+	// When flag is omitted
+	options, ok = parseCommand(commandSpec{name: "sync", includeSyncFlags: true}, []string{}, commandIO{stdout: &stdout, stderr: &stderr})
+
+	// Then
+	if !ok {
+		t.Fatalf("parseCommand() ok = false, stderr = %q", stderr.String())
+	}
+	overrides = options.overrides(false)
+	if overrides.HasAttachmentMaxBytesOverride {
+		t.Fatalf("overrides = %#v, want HasAttachmentMaxBytesOverride = false", overrides)
+	}
+}
+
+func TestRunSync_pushesAttachment_whenSyncAttachmentsFlagEnabled(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearCommandEnv(t)
+	if err := os.WriteFile(filepath.Join(root, "photo.png"), []byte("binary-bytes"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	var gotContent, gotEncoding string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/vaults/vault/sync/devices":
+			writeCommandJSON(t, w, http.StatusOK, `{"success": true, "data": {"vault_id": "vault", "device_id": "dev", "registered": true}}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/vaults/vault/sync/changes":
+			writeCommandJSON(t, w, http.StatusOK, `{"success": true, "data": {"vault_id": "vault", "from_cursor": 0, "to_cursor": 0, "changes": []}}`)
+		case r.Method == http.MethodPut && r.URL.Path == "/vaults/vault/files/photo.png":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode PUT body: %v", err)
+			}
+			gotContent, _ = body["content"].(string)
+			gotEncoding, _ = body["encoding"].(string)
+			writeCommandJSON(t, w, http.StatusOK, `{"success": true, "data": {"vault_id": "vault", "path": "photo.png", "revision": 1, "content_hash": "h"}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When
+	code := run([]string{
+		"sync",
+		"--vault-root", root,
+		"--server", server.URL,
+		"--vault-id", "vault",
+		"--device-id", "dev",
+		"--sync-attachments",
+	}, &stdout, &stderr)
+
+	// Then
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d, stderr = %q", code, exitOK, stderr.String())
+	}
+	if gotEncoding != "base64" {
+		t.Fatalf("PUT encoding = %q, want base64", gotEncoding)
+	}
+	wantContent := base64.StdEncoding.EncodeToString([]byte("binary-bytes"))
+	if gotContent != wantContent {
+		t.Fatalf("PUT content = %q, want %q", gotContent, wantContent)
 	}
 }
 

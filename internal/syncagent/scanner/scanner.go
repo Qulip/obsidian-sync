@@ -3,6 +3,7 @@ package scanner
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -25,12 +26,17 @@ type LocalChanges struct {
 	Deleted  []string
 }
 
-func ScanVault(vaultRoot string) (map[string]ScannedFile, error) {
+// ScanVault walks the vault and returns every file eligible to sync. It also
+// returns attachments intentionally excluded by configuration, so callers do
+// not mistake them for user-deleted files.
+func ScanVault(vaultRoot string, syncAttachments bool, attachmentMaxBytes int64) (map[string]ScannedFile, map[string]struct{}, []string, error) {
 	root, err := filepath.Abs(vaultRoot)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	scanned := map[string]ScannedFile{}
+	excluded := map[string]struct{}{}
+	var warnings []string
 	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -49,12 +55,24 @@ func ScanVault(vaultRoot string) (map[string]ScannedFile, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if !rules.ShouldSync(rel) {
+		if rules.IsAttachmentPath(rel) && !syncAttachments {
+			excluded[rel] = struct{}{}
+			return nil
+		}
+		if !rules.ShouldSync(rel, syncAttachments) {
 			return nil
 		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
+		}
+		if rules.IsAttachmentPath(rel) && info.Size() > attachmentMaxBytes {
+			excluded[rel] = struct{}{}
+			warnings = append(warnings, fmt.Sprintf(
+				"attachment too large, skipped: %s (%d bytes > %d byte limit)",
+				rel, info.Size(), attachmentMaxBytes,
+			))
+			return nil
 		}
 		contentHash, err := hashFile(path)
 		if err != nil {
@@ -69,12 +87,12 @@ func ScanVault(vaultRoot string) (map[string]ScannedFile, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
-	return scanned, nil
+	return scanned, excluded, warnings, nil
 }
 
-func ClassifyLocalChanges(scanned map[string]ScannedFile, state manifest.Manifest) LocalChanges {
+func ClassifyLocalChanges(scanned map[string]ScannedFile, excluded map[string]struct{}, state manifest.Manifest, syncAttachments bool) LocalChanges {
 	changes := LocalChanges{}
 	for path, file := range scanned {
 		entry, ok := state.Files[path]
@@ -87,7 +105,13 @@ func ClassifyLocalChanges(scanned map[string]ScannedFile, state manifest.Manifes
 		}
 	}
 	for path := range state.Files {
-		if _, ok := scanned[path]; !ok {
+		if _, ok := scanned[path]; ok {
+			continue
+		}
+		if _, ok := excluded[path]; !ok {
+			if !syncAttachments && rules.IsAttachmentPath(path) {
+				continue
+			}
 			changes.Deleted = append(changes.Deleted, path)
 		}
 	}

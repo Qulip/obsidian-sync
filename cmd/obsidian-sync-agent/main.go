@@ -56,14 +56,18 @@ func printHelp(output io.Writer) {
 }
 
 type commandOptions struct {
-	vaultRoot              string
-	vaultID                string
-	server                 string
-	deviceID               string
-	verbose                bool
-	dryRun                 bool
-	requireObsidianRefresh bool
-	helpRequested          bool
+	vaultRoot                 string
+	vaultID                   string
+	server                    string
+	deviceID                  string
+	verbose                   bool
+	dryRun                    bool
+	requireObsidianRefresh    bool
+	syncAttachments           bool
+	noSyncAttachments         bool
+	attachmentMaxBytes        int64
+	hasAttachmentMaxBytesFlag bool
+	helpRequested             bool
 }
 
 type commandSpec struct {
@@ -151,6 +155,9 @@ func parseCommand(spec commandSpec, args []string, stdio commandIO) (commandOpti
 	if spec.includeSyncFlags {
 		flags.BoolVar(&options.dryRun, "dry-run", false, "print planned actions without writing or pushing")
 		flags.BoolVar(&options.requireObsidianRefresh, "require-obsidian-refresh", false, "exit non-zero if the Obsidian refresh step fails")
+		flags.BoolVar(&options.syncAttachments, "sync-attachments", false, "enable attachment (image/PDF) sync")
+		flags.BoolVar(&options.noSyncAttachments, "no-sync-attachments", false, "disable attachment sync even if enabled via config/env")
+		flags.Int64Var(&options.attachmentMaxBytes, "attachment-max-bytes", 0, "local attachment size filter in bytes")
 	}
 	for _, arg := range args {
 		if arg == "--help" || arg == "-h" || arg == "-help" {
@@ -170,6 +177,11 @@ func parseCommand(spec commandSpec, args []string, stdio commandIO) (commandOpti
 		fmt.Fprintf(stdio.stderr, "%s %s: unexpected argument %q\n", commandName, spec.name, flags.Arg(0))
 		return commandOptions{}, false
 	}
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "attachment-max-bytes" {
+			options.hasAttachmentMaxBytesFlag = true
+		}
+	})
 	return options, true
 }
 
@@ -190,17 +202,27 @@ func printCommandHelp(output io.Writer, spec commandSpec) {
 		fmt.Fprintln(output, "    \tprint planned actions without writing or pushing")
 		fmt.Fprintln(output, "  --require-obsidian-refresh")
 		fmt.Fprintln(output, "    \texit non-zero if the Obsidian refresh step fails")
+		fmt.Fprintln(output, "  --sync-attachments")
+		fmt.Fprintln(output, "    \tenable attachment (image/PDF) sync")
+		fmt.Fprintln(output, "  --no-sync-attachments")
+		fmt.Fprintln(output, "    \tdisable attachment sync even if enabled via config/env")
+		fmt.Fprintln(output, "  --attachment-max-bytes int")
+		fmt.Fprintln(output, "    \tlocal attachment size filter in bytes")
 	}
 }
 
 func (o commandOptions) overrides(requireRefreshSet bool) config.CLIOverrides {
 	return config.CLIOverrides{
-		VaultRoot:                 o.vaultRoot,
-		VaultID:                   o.vaultID,
-		ServerBaseURL:             o.server,
-		DeviceID:                  o.deviceID,
-		RequireObsidianRefresh:    o.requireObsidianRefresh,
-		HasRequireRefreshOverride: requireRefreshSet,
+		VaultRoot:                     o.vaultRoot,
+		VaultID:                       o.vaultID,
+		ServerBaseURL:                 o.server,
+		DeviceID:                      o.deviceID,
+		RequireObsidianRefresh:        o.requireObsidianRefresh,
+		HasRequireRefreshOverride:     requireRefreshSet,
+		SyncAttachments:               o.syncAttachments && !o.noSyncAttachments,
+		HasSyncAttachmentsOverride:    o.syncAttachments || o.noSyncAttachments,
+		AttachmentMaxBytes:            o.attachmentMaxBytes,
+		HasAttachmentMaxBytesOverride: o.hasAttachmentMaxBytesFlag,
 	}
 }
 

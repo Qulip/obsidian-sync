@@ -1,6 +1,6 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI
 from mcp.server.fastmcp import Context, FastMCP
@@ -46,15 +46,19 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
     @mcp.tool(name='list_vaults_mcp_vaults_get')
     async def list_vaults(ctx: Context[Any, Any, Request]) -> dict[str, Any]:
         """List all available personal knowledge bases."""
-        async with _session(app) as session:
-            settings = _settings(app)
-            metadata = await _metadata(ctx, session)
-            service = _vault_service(
-                session=session,
-                settings=settings,
-                metadata=metadata,
-            )
-            return _dump(ok(await service.list_vaults()))
+
+        async def tool_call() -> ResponseEnvelope[Any]:
+            async with _session(app) as session:
+                settings = _settings(app)
+                metadata = await _metadata(ctx, session)
+                service = _vault_service(
+                    session=session,
+                    settings=settings,
+                    metadata=metadata,
+                )
+                return ok(await service.list_vaults())
+
+        return await _run_mcp_tool(tool_call)
 
     @mcp.tool(name='sync_file_mcp_vaults__vault_id__sync_file_post')
     async def sync_file(
@@ -77,15 +81,19 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
           returns 409 SYNC_CONFLICT. `base_revision=0` means "create a new
           file" and requires no special token permission.
         """
-        async with _session(app) as session:
-            settings = _settings(app)
-            metadata = await _metadata(ctx, session)
-            service = _vault_service(
-                session=session,
-                settings=settings,
-                metadata=metadata,
-            )
-            return _dump(ok(await service.force_sync_file(vault_id, payload)))
+
+        async def tool_call() -> ResponseEnvelope[Any]:
+            async with _session(app) as session:
+                settings = _settings(app)
+                metadata = await _metadata(ctx, session)
+                service = _vault_service(
+                    session=session,
+                    settings=settings,
+                    metadata=metadata,
+                )
+                return ok(await service.force_sync_file(vault_id, payload))
+
+        return await _run_mcp_tool(tool_call)
 
     @mcp.tool(name='reindex_vault_mcp_vaults__vault_id__reindex_post')
     async def reindex_vault(
@@ -94,13 +102,17 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         ctx: Context[Any, Any, Request],
     ) -> dict[str, Any]:
         """Re-embed uploaded files so they appear in future search results."""
-        async with _session(app) as session:
-            await _metadata(ctx, session)
-            settings = _settings(app)
-            service = _reindex_service(session=session, settings=settings)
-            return _dump(
-                ok(await service.reindex_vault(vault_id=vault_id, mode=payload.mode))
-            )
+
+        async def tool_call() -> ResponseEnvelope[Any]:
+            async with _session(app) as session:
+                await _metadata(ctx, session)
+                settings = _settings(app)
+                service = _reindex_service(session=session, settings=settings)
+                return ok(
+                    await service.reindex_vault(vault_id=vault_id, mode=payload.mode)
+                )
+
+        return await _run_mcp_tool(tool_call)
 
     @mcp.tool(name='search_knowledge_mcp_knowledge_search_post')
     async def search_knowledge(
@@ -154,25 +166,26 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         so `top_k` is not dominated by adjacent or overlapping chunks from
         a single note.
         """
-        async with _session(app) as session:
-            settings = _settings(app)
-            metadata = await _metadata(ctx, session)
-            filters = (
-                payload.filters.model_dump(exclude_none=True)
-                if payload.filters
-                else None
-            )
-            service = KnowledgeSearchService(
-                repository=SearchRepository(session),
-                ollama_client=OllamaClient(
-                    base_url=settings.ollama_base_url,
-                    model=settings.embedding_model,
-                    timeout_seconds=settings.ollama_timeout_seconds,
-                ),
-                settings=settings,
-            )
-            return _dump(
-                ok(
+
+        async def tool_call() -> ResponseEnvelope[Any]:
+            async with _session(app) as session:
+                settings = _settings(app)
+                metadata = await _metadata(ctx, session)
+                filters = (
+                    payload.filters.model_dump(exclude_none=True)
+                    if payload.filters
+                    else None
+                )
+                service = KnowledgeSearchService(
+                    repository=SearchRepository(session),
+                    ollama_client=OllamaClient(
+                        base_url=settings.ollama_base_url,
+                        model=settings.embedding_model,
+                        timeout_seconds=settings.ollama_timeout_seconds,
+                    ),
+                    settings=settings,
+                )
+                return ok(
                     await service.search(
                         vault_id=payload.vault_id,
                         query=payload.query,
@@ -186,7 +199,8 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
                         user_agent=metadata.user_agent,
                     )
                 )
-            )
+
+        return await _run_mcp_tool(tool_call)
 
     @mcp.tool(name='submit_search_feedback_mcp_knowledge_search_feedback_post')
     async def submit_search_feedback(
@@ -202,11 +216,12 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         field must be set. This data feeds threshold/ranking tuning for
         search quality -- it does not change the current response.
         """
-        async with _session(app) as session:
-            await _metadata(ctx, session)
-            service = SearchLogService(repository=SearchRepository(session))
-            return _dump(
-                ok(
+
+        async def tool_call() -> ResponseEnvelope[Any]:
+            async with _session(app) as session:
+                await _metadata(ctx, session)
+                service = SearchLogService(repository=SearchRepository(session))
+                return ok(
                     await service.record_feedback(
                         request_id=payload.request_id,
                         vault_id=payload.vault_id,
@@ -217,7 +232,8 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
                         comment=payload.comment,
                     )
                 )
-            )
+
+        return await _run_mcp_tool(tool_call)
 
     @mcp.tool(name='get_note_mcp_vaults_note_post')
     async def get_note(
@@ -225,11 +241,15 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         ctx: Context[Any, Any, Request],
     ) -> dict[str, Any]:
         """Read the latest content of a note with revision and content hash."""
-        async with _session(app) as session:
-            settings = _settings(app)
-            await _metadata(ctx, session)
-            service = _revision_sync_service(session=session, settings=settings)
-            return _dump(ok(await service.get_file(payload.vault_id, payload.path)))
+
+        async def tool_call() -> ResponseEnvelope[Any]:
+            async with _session(app) as session:
+                settings = _settings(app)
+                await _metadata(ctx, session)
+                service = _revision_sync_service(session=session, settings=settings)
+                return ok(await service.get_file(payload.vault_id, payload.path))
+
+        return await _run_mcp_tool(tool_call)
 
     @mcp.tool(name='get_sync_status_mcp_vaults__vault_id__sync_status_get')
     async def get_sync_status(
@@ -237,13 +257,14 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
         ctx: Context[Any, Any, Request],
     ) -> dict[str, Any]:
         """Report the vault's server revision, open conflicts, and pending jobs."""
-        async with _session(app) as session:
-            settings = _settings(app)
-            await _metadata(ctx, session)
-            service = _revision_sync_service(session=session, settings=settings)
-            status = await service.get_status(vault_id, device_id=None)
-            return _dump(
-                ok(
+
+        async def tool_call() -> ResponseEnvelope[Any]:
+            async with _session(app) as session:
+                settings = _settings(app)
+                await _metadata(ctx, session)
+                service = _revision_sync_service(session=session, settings=settings)
+                status = await service.get_status(vault_id, device_id=None)
+                return ok(
                     McpSyncStatusData(
                         vault_id=status.vault_id,
                         server_revision=status.server_revision,
@@ -251,13 +272,36 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
                         pending_vectorizing_jobs=status.pending_vectorizing_jobs,
                     )
                 )
-            )
+
+        return await _run_mcp_tool(tool_call)
 
     return mcp
 
 
 def create_mcp_app(mcp: FastMCP) -> ASGIApp:
     return mcp.streamable_http_app()
+
+
+async def _run_mcp_tool(
+    tool_call: Callable[[], Awaitable[ResponseEnvelope[Any]]],
+) -> dict[str, Any]:
+    try:
+        return _dump(await tool_call())
+    except AppError as exc:
+        return _dump_app_error(exc)
+
+
+def _dump_app_error(exc: AppError) -> dict[str, Any]:
+    return {
+        'success': False,
+        'data': None,
+        'error': {
+            'code': exc.code.value,
+            'message': exc.message,
+            'details': exc.details,
+            'status_code': exc.status_code,
+        },
+    }
 
 
 @asynccontextmanager
@@ -269,6 +313,7 @@ async def _session(app: FastAPI) -> AsyncIterator[AsyncSession]:
             'Database is not configured.',
             status_code=500,
         )
+    sessionmaker = cast(async_sessionmaker[AsyncSession], sessionmaker)
 
     async with sessionmaker() as session:
         try:

@@ -16,8 +16,8 @@
 | 2 | manifest를 run 종료 시에만 저장 → 중단 후 재실행 시 허위 conflict | CRITICAL | **수정됨**: Go/Python mutation 직후 증분 저장 + 중단 회귀 테스트 |
 | 3 | Go pull에서 심링크 하나로 전체 sync 영구 중단 | HIGH | **수정됨**: warning + skip, 같은 run의 push 제외 + 회귀 테스트 |
 | 4 | MCP 도구 에러에서 구조화 정보(`code`/`details`) 전부 소실 | HIGH | **수정됨**: Streamable MCP AppError 구조화 envelope 반환 + 회귀 테스트 |
-| 5 | Go 에이전트에 재시도·conflict_policy·watch 부재 (Python과 기능 격차) | CRITICAL~HIGH | **부분 수정**: Go GET/기기등록 transient retry 추가. conflict_policy/watch는 남음 |
-| 6 | 리비전/소프트 삭제 GC가 문서상으로만 존재 | MEDIUM | **부분 정정**: soft-delete cleanup script 존재. archive/version pruning은 남음 |
+| 5 | Go 에이전트에 재시도·conflict_policy·watch 부재 (Python과 기능 격차) | CRITICAL~HIGH | **수정됨**: transient retry + conflict_policy 이식 + watch 모드 추가 |
+| 6 | 리비전/소프트 삭제 GC가 문서상으로만 존재 | MEDIUM | **수정됨**: archive populate + version pruning 구현 |
 
 ### 2026-07-14 재검증 및 수정 반영
 
@@ -26,6 +26,12 @@
 - Go pull의 `vaultfs.SafePath` 거부는 전체 run 실패가 아니라 warning + 해당 path skip으로 완화했다. 심링크를 따라 쓰거나 삭제하지 않으며, 같은 run의 push 단계에서도 해당 path를 제외한다. unsafe skip이 있으면 cursor를 전진시키지 않아 다음 run에서도 동일 path를 다시 skip 처리하고, stale manifest가 remote delete로 전파되지 않게 했다. 회귀 테스트: `internal/syncagent/engine/symlink_containment_test.go`.
 - Go HTTP client는 `GET` 및 device registration `POST /sync/devices`에 한해 transient network error, 408, 429, 5xx를 최대 3회 재시도한다. `PUT`/`DELETE`는 응답 유실 시 revision 의미가 모호하므로 자동 재시도하지 않는다. 회귀 테스트: `internal/syncagent/client/client_test.go`.
 - Streamable MCP tool은 `AppError`를 평문 예외로 잃지 않고 `success:false`, `error.code`, `error.message`, `error.details`, `error.status_code` envelope로 반환한다. `_session`의 rollback 후 변환하므로 실패 transaction은 commit되지 않는다. 회귀 테스트: `tests/test_mcp_server_errors.py`.
+
+### 2026-07-14 후속 반영 (잔여 과제 해소)
+
+- Go 에이전트에 `conflict_policy`(`manual`/`local-wins`/`remote-wins`)를 이식했다. config `conflict_policy` + env + `--conflict-policy` 플래그(CLI > env > file > 기본 `manual`). local-wins는 최대 2회 재시도 후 manual 폴백(+warning), remote-wins는 로컬 내용을 `.local-backup.conflict.*` 파일로 백업 후 서버 채택. 회귀 테스트: `internal/syncagent/engine/conflict_policy_test.go`, `internal/syncagent/config/config_test.go`.
+- Go 에이전트에 `watch` 서브커맨드를 추가했다(fsnotify 재귀 감시 + 2초 debounce + 실행 중/드레인 윈도 게이트로 자체 트리거 루프 방지, `--watch-interval-seconds` 주기 안전망, SIGINT/SIGTERM 정상 종료). Python `watch`와 동일한 필터 규칙(`rules.ShouldSync`) 공유. 회귀 테스트: `internal/syncagent/watch/*_test.go`.
+- `scripts/cleanup_deleted_files.py`가 보존 기간 경과 soft-deleted 파일을 `ArchivedVaultFile`/`ArchivedKnowledgeChunk`로 archive한 뒤 원본 행을 삭제하고, `vault_file_versions`를 `sync_version_retention_days`(기본 90일) 기준으로 pruning한다(경로별 최신 리비전은 나이와 무관하게 보존). `--dry-run` 지원. 회귀 테스트: `tests/test_cleanup_deleted_files.py`.
 
 ---
 
@@ -54,6 +60,8 @@ push 쪽도 동일 구조: push 성공 후 크래시 시 다음 실행에서 sta
 - 현재 테스트(`engine_test.go`, `push_conflict_test.go`)에 "run 도중 중단 후 재실행" 시나리오가 없음 — 회귀 테스트 추가 필요.
 
 ### 1.2 충돌 자동 해결 정책이 Python에만 존재
+
+> 2026-07-14 수정됨: Go에 conflict_policy 이식 완료. "후속 반영" 절 참조.
 
 **위치**
 - Python: `src/obsidian_sync/sync_agent/config.py:49-55` (`ConflictPolicy = 'manual'|'local-wins'|'remote-wins'`), `sync_agent/conflict_resolution.py` 전체
@@ -150,6 +158,8 @@ REST에서는 `app.add_exception_handler(AppError, ...)`(`app.py:94`)가 `code`(
 
 ### 2.5 Go에 watch 모드 부재
 
+> 2026-07-14 수정됨: `obsisync watch` 추가. "후속 반영" 절 참조.
+
 `cmd/obsidian-sync-agent/main.go:36-46`의 서브커맨드는 `status`/`sync`/`update`뿐이다. 준실시간 동기화를 원하는 Go 사용자는 cron/launchd 반복 실행을 구성하거나, "호환용"으로만 남겨둔 Python CLI를 uv 개발 환경째 설치해야 한다. 단일 바이너리 배포의 장점이 이 지점에서 무너진다.
 
 ---
@@ -161,6 +171,9 @@ REST에서는 `app.add_exception_handler(AppError, ...)`(`app.py:94`)가 `code`(
 > 2026-07-14 재검증 정정: soft-delete 파일 정리 스크립트
 > `scripts/cleanup_deleted_files.py`는 존재한다. 다만 archive ORM table populate와
 > `vault_file_versions` pruning은 여전히 구현되지 않은 운영 과제로 남는다.
+>
+> 2026-07-14 수정됨: cleanup 스크립트가 archive populate와 version pruning을
+> 수행한다. "후속 반영" 절 참조.
 
 - `src/obsidian_sync/api/routes/sync.py:151` docstring: "a cleanup job archives expired soft-deleted files" — `scripts/cleanup_deleted_files.py`가 soft-deleted file 이동 작업을 제공한다.
 - `core/config.py:33`의 `sync_soft_delete_retention_days`: `scripts/cleanup_deleted_files.py`에서 사용된다.

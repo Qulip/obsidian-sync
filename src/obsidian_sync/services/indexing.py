@@ -152,6 +152,7 @@ class ReindexService:
             if not chunks:
                 raise DomainValidationError('markdown produced no indexable chunks')
 
+            fresh_content_hash = sha256_text(markdown)
             writes: list[ChunkWrite] = []
             for chunk in chunks:
                 embedding_input = format_chunk_embedding_input(frontmatter, chunk)
@@ -184,13 +185,32 @@ class ReindexService:
                         priority=frontmatter.priority.value,
                         visibility=frontmatter.visibility.value,
                         tags=list(frontmatter.tags),
-                        content_hash=record.content_hash or sha256_text(markdown),
+                        content_hash=fresh_content_hash,
                         embedding_model=self.settings.embedding_model,
                         embedding=embedding,
                     )
                 )
 
             created, updated, deleted = await self.repository.replace_chunks(writes)
+            current_record = await self.repository.get_file(
+                vault_id=record.vault_id,
+                source_path=record.source_path,
+            )
+            if (
+                current_record is None
+                or current_record.deleted
+                or current_record.content_hash != fresh_content_hash
+            ):
+                await self.repository.set_file_index_status(
+                    file_id=record.id,
+                    index_status='pending',
+                    index_error=None,
+                    indexed=False,
+                )
+                result.created_chunks += created
+                result.updated_chunks += updated
+                result.deleted_chunks += deleted
+                return
             await self.repository.set_file_index_status(
                 file_id=record.id,
                 index_status='indexed',

@@ -30,6 +30,7 @@ from obsidian_sync.schemas.sync import (
 )
 from obsidian_sync.schemas.vaults import ListVaultsData, SyncFileData
 from obsidian_sync.services.indexing import ReindexService
+from obsidian_sync.services.post_sync_indexing import PostSyncIndexDispatcher
 from obsidian_sync.services.revision_sync import RevisionSyncService
 from obsidian_sync.services.search import KnowledgeSearchService, SearchLogService
 from obsidian_sync.services.storage import VaultStorage
@@ -90,6 +91,7 @@ def create_mcp_server(app: FastAPI) -> FastMCP:
                     session=session,
                     settings=settings,
                     metadata=metadata,
+                    post_sync_indexer=_post_sync_indexer(app),
                 )
                 return ok(await service.force_sync_file(vault_id, payload))
 
@@ -385,6 +387,7 @@ def _vault_service(
     session: AsyncSession,
     settings: Settings,
     metadata: RequestMetadata,
+    post_sync_indexer: PostSyncIndexDispatcher | None = None,
 ) -> VaultSyncService:
     return VaultSyncService(
         session,
@@ -392,6 +395,7 @@ def _vault_service(
         archived_by=metadata.token_id,
         settings=settings,
         allow_overwrite=metadata.allow_overwrite,
+        post_sync_indexer=post_sync_indexer,
     )
 
 
@@ -404,6 +408,12 @@ def _revision_sync_service(
         session,
         VaultStorage(settings.vault_storage_root, settings.vault_archive_root),
         settings,
+    )
+
+def _post_sync_indexer(app: FastAPI) -> PostSyncIndexDispatcher | None:
+    return cast(
+        PostSyncIndexDispatcher | None,
+        getattr(app.state, 'post_sync_index_dispatcher', None),
     )
 
 

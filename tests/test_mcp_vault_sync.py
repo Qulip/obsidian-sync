@@ -8,12 +8,28 @@ the fixed behavior: writes here must be fail-closed by default and, once a
 write happens, must stay in lockstep with the revision system.
 """
 
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+from fastapi import FastAPI
+from starlette.requests import Request
+
+from obsidian_sync import mcp_server
+from obsidian_sync.api.deps import RequestMetadata, get_post_sync_indexer
+from obsidian_sync.api.routes import sync as rest_sync_routes
+from obsidian_sync.api.routes.mcp import vaults as rest_mcp_vault_routes
 from obsidian_sync.domain.hashing import sha256_text
 
 MCP_SYNC_FILE_URL = '/mcp/vaults/{vault_id}/sync/file'
 CHANGES_URL = '/vaults/{vault_id}/sync/changes'
+
+
+def _settings() -> SimpleNamespace:
+    return SimpleNamespace(
+        vault_storage_root=Path('/tmp/obsidian-sync-test-vaults'),
+        vault_archive_root=Path('/tmp/obsidian-sync-test-archive'),
+    )
 
 
 def _sync_file(
@@ -54,6 +70,253 @@ def _sync_event_types(db_fetch: Any, vault_id: str, path: str) -> list[str]:
         path,
     )
     return [row['event_type'] for row in rows]
+
+
+def test_rest_sync_write_service_passes_post_sync_indexer(
+    monkeypatch: Any,
+) -> None:
+    captured: dict[str, object] = {}
+    dispatcher = object()
+    session = object()
+    settings = _settings()
+
+    class FakeRevisionSyncService:
+        def __init__(
+            self,
+            received_session: object,
+            storage: object,
+            received_settings: object,
+            *,
+            post_sync_indexer: object | None = None,
+        ) -> None:
+            captured['session'] = received_session
+            captured['settings'] = received_settings
+            captured['post_sync_indexer'] = post_sync_indexer
+
+    monkeypatch.setattr(
+        rest_sync_routes,
+        'RevisionSyncService',
+        FakeRevisionSyncService,
+    )
+
+    service = rest_sync_routes._write_service(
+        session=session,
+        settings=settings,
+        post_sync_indexer=dispatcher,
+    )
+
+    assert isinstance(service, FakeRevisionSyncService)
+    assert captured == {
+        'session': session,
+        'settings': settings,
+        'post_sync_indexer': dispatcher,
+    }
+
+
+def test_rest_sync_read_delete_service_does_not_pass_post_sync_indexer(
+    monkeypatch: Any,
+) -> None:
+    captured: dict[str, object] = {}
+    session = object()
+    settings = _settings()
+
+    class FakeRevisionSyncService:
+        def __init__(
+            self,
+            received_session: object,
+            storage: object,
+            received_settings: object,
+            **kwargs: object,
+        ) -> None:
+            captured['session'] = received_session
+            captured['settings'] = received_settings
+            captured['kwargs'] = kwargs
+
+    monkeypatch.setattr(
+        rest_sync_routes,
+        'RevisionSyncService',
+        FakeRevisionSyncService,
+    )
+
+    service = rest_sync_routes._service(session=session, settings=settings)
+
+    assert isinstance(service, FakeRevisionSyncService)
+    assert captured == {
+        'session': session,
+        'settings': settings,
+        'kwargs': {},
+    }
+
+
+def test_rest_mcp_sync_file_service_passes_post_sync_indexer(
+    monkeypatch: Any,
+) -> None:
+    captured: dict[str, object] = {}
+    dispatcher = object()
+    session = object()
+    settings = _settings()
+    metadata = RequestMetadata(token_id='token-1', client_ip=None, user_agent=None)
+
+    class FakeVaultSyncService:
+        def __init__(
+            self,
+            received_session: object,
+            storage: object,
+            *,
+            archived_by: str,
+            settings: object,
+            allow_overwrite: bool = False,
+            post_sync_indexer: object | None = None,
+        ) -> None:
+            captured['session'] = received_session
+            captured['archived_by'] = archived_by
+            captured['settings'] = settings
+            captured['allow_overwrite'] = allow_overwrite
+            captured['post_sync_indexer'] = post_sync_indexer
+
+    monkeypatch.setattr(
+        rest_mcp_vault_routes,
+        'VaultSyncService',
+        FakeVaultSyncService,
+    )
+
+    service = rest_mcp_vault_routes._write_vault_service(
+        session=session,
+        settings=settings,
+        metadata=metadata,
+        post_sync_indexer=dispatcher,
+    )
+
+    assert isinstance(service, FakeVaultSyncService)
+    assert captured == {
+        'session': session,
+        'archived_by': 'token-1',
+        'settings': settings,
+        'allow_overwrite': False,
+        'post_sync_indexer': dispatcher,
+    }
+
+
+def test_rest_mcp_list_vaults_service_does_not_pass_post_sync_indexer(
+    monkeypatch: Any,
+) -> None:
+    captured: dict[str, object] = {}
+    session = object()
+    settings = _settings()
+    metadata = RequestMetadata(token_id='token-1', client_ip=None, user_agent=None)
+
+    class FakeVaultSyncService:
+        def __init__(
+            self,
+            received_session: object,
+            storage: object,
+            *,
+            archived_by: str,
+            settings: object,
+            allow_overwrite: bool = False,
+            **kwargs: object,
+        ) -> None:
+            captured['session'] = received_session
+            captured['archived_by'] = archived_by
+            captured['settings'] = settings
+            captured['allow_overwrite'] = allow_overwrite
+            captured['kwargs'] = kwargs
+
+    monkeypatch.setattr(
+        rest_mcp_vault_routes,
+        'VaultSyncService',
+        FakeVaultSyncService,
+    )
+
+    service = rest_mcp_vault_routes._vault_service(
+        session=session,
+        settings=settings,
+        metadata=metadata,
+    )
+
+    assert isinstance(service, FakeVaultSyncService)
+    assert captured == {
+        'session': session,
+        'archived_by': 'token-1',
+        'settings': settings,
+        'allow_overwrite': False,
+        'kwargs': {},
+    }
+
+
+def test_streamable_mcp_sync_file_service_passes_app_state_post_sync_dispatcher(
+    monkeypatch: Any,
+) -> None:
+    captured: dict[str, object] = {}
+    dispatcher = object()
+    app = FastAPI()
+    app.state.post_sync_index_dispatcher = dispatcher
+    app.state.post_sync_indexer = object()
+    session = object()
+    settings = _settings()
+    metadata = RequestMetadata(token_id='token-1', client_ip=None, user_agent=None)
+
+    class FakeVaultSyncService:
+        def __init__(
+            self,
+            received_session: object,
+            storage: object,
+            *,
+            archived_by: str,
+            settings: object,
+            allow_overwrite: bool = False,
+            post_sync_indexer: object | None = None,
+        ) -> None:
+            captured['session'] = received_session
+            captured['archived_by'] = archived_by
+            captured['settings'] = settings
+            captured['allow_overwrite'] = allow_overwrite
+            captured['post_sync_indexer'] = post_sync_indexer
+
+    monkeypatch.setattr(mcp_server, 'VaultSyncService', FakeVaultSyncService)
+
+    service = mcp_server._vault_service(
+        session=session,
+        settings=settings,
+        metadata=metadata,
+        post_sync_indexer=mcp_server._post_sync_indexer(app),
+    )
+
+    assert isinstance(service, FakeVaultSyncService)
+    assert captured == {
+        'session': session,
+        'archived_by': 'token-1',
+        'settings': settings,
+        'allow_overwrite': False,
+        'post_sync_indexer': dispatcher,
+    }
+
+
+def test_post_sync_indexer_dependency_reads_app_state() -> None:
+    dispatcher = object()
+    app = FastAPI()
+    app.state.post_sync_index_dispatcher = dispatcher
+    app.state.post_sync_indexer = object()
+    request = Request({'type': 'http', 'method': 'GET', 'path': '/', 'app': app})
+
+    assert get_post_sync_indexer(request) is dispatcher
+
+
+def test_post_sync_indexer_dependency_falls_back_to_none_without_lifespan_state(
+) -> None:
+    app = FastAPI()
+    app.state.post_sync_indexer = object()
+    request = Request({'type': 'http', 'method': 'GET', 'path': '/', 'app': app})
+
+    assert get_post_sync_indexer(request) is None
+
+
+def test_streamable_mcp_post_sync_indexer_falls_back_to_none_without_lifespan_state(
+) -> None:
+    app = FastAPI()
+    app.state.post_sync_indexer = object()
+
+    assert mcp_server._post_sync_indexer(app) is None
 
 
 # --- new file: unchanged behavior + revision-system integration -----------

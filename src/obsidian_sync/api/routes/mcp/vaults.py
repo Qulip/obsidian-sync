@@ -1,17 +1,22 @@
 from fastapi import APIRouter
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from obsidian_sync.api.deps import (
     DbSessionDependency,
+    PostSyncIndexerDependency,
+    RequestMetadata,
     RequestMetadataDependency,
     SettingsDependency,
 )
 from obsidian_sync.clients.ollama import OllamaClient
+from obsidian_sync.core.config import Settings
 from obsidian_sync.core.responses import ResponseEnvelope, ok
 from obsidian_sync.repositories.indexing import IndexingRepository
 from obsidian_sync.schemas.indexing import ReindexResult, ReindexVaultRequest
 from obsidian_sync.schemas.mcp import McpSyncFileRequest
 from obsidian_sync.schemas.vaults import ListVaultsData, SyncFileData
 from obsidian_sync.services.indexing import ReindexService
+from obsidian_sync.services.post_sync_indexing import PostSyncIndexDispatcher
 from obsidian_sync.services.storage import VaultStorage
 from obsidian_sync.services.vault_sync import VaultSyncService
 
@@ -45,6 +50,7 @@ async def sync_file(
     session: DbSessionDependency,
     settings: SettingsDependency,
     metadata: RequestMetadataDependency,
+    post_sync_indexer: PostSyncIndexerDependency,
 ) -> ResponseEnvelope[SyncFileData]:
     """Step 1 of saving a note: upload markdown content.
 
@@ -65,9 +71,16 @@ async def sync_file(
       otherwise it returns 409 SYNC_CONFLICT. base_revision=0 means
       "create a new file" and requires no special token permission.
 
-    Save workflow: sync_file → reindex_vault.
+    Save workflow: successful vectorizable Markdown saves schedule best-effort
+    in-process indexing when post-sync indexing is enabled. Run reindex_vault for
+    full rebuilds, explicit retries, or recovery after failures and restarts.
     """
-    service = _vault_service(session=session, settings=settings, metadata=metadata)
+    service = _write_vault_service(
+        session=session,
+        settings=settings,
+        metadata=metadata,
+        post_sync_indexer=post_sync_indexer,
+    )
     return ok(await service.force_sync_file(vault_id, payload))
 
 
@@ -81,13 +94,12 @@ async def reindex_vault(
     session: DbSessionDependency,
     settings: SettingsDependency,
 ) -> ResponseEnvelope[ReindexResult]:
-    """Step 2 of saving a note: make the new content searchable.
+    """Manually rebuild or recover searchable content.
 
-    Re-embeds uploaded files so they appear in future search_knowledge results.
-    Use mode='changed_only' after saving a note (faster). Use mode='full' only
-    when repairing a broken index.
-
-    Save workflow: sync_file → reindex_vault.
+    Successful vectorizable Markdown saves already schedule best-effort
+    in-process indexing when post-sync indexing is enabled. Use
+    mode='changed_only' to retry pending or failed files, including after a
+    process restart. Use mode='full' for complete rebuilds.
     """
     service = _reindex_service(session=session, settings=settings)
     return ok(await service.reindex_vault(vault_id=vault_id, mode=payload.mode))
@@ -95,9 +107,9 @@ async def reindex_vault(
 
 def _vault_service(
     *,
-    session: DbSessionDependency,
-    settings: SettingsDependency,
-    metadata: RequestMetadataDependency,
+    session: AsyncSession,
+    settings: Settings,
+    metadata: RequestMetadata,
 ) -> VaultSyncService:
     return VaultSyncService(
         session,
@@ -108,10 +120,27 @@ def _vault_service(
     )
 
 
+def _write_vault_service(
+    *,
+    session: AsyncSession,
+    settings: Settings,
+    metadata: RequestMetadata,
+    post_sync_indexer: PostSyncIndexDispatcher | None,
+) -> VaultSyncService:
+    return VaultSyncService(
+        session,
+        VaultStorage(settings.vault_storage_root, settings.vault_archive_root),
+        archived_by=metadata.token_id,
+        settings=settings,
+        allow_overwrite=metadata.allow_overwrite,
+        post_sync_indexer=post_sync_indexer,
+    )
+
+
 def _reindex_service(
     *,
-    session: DbSessionDependency,
-    settings: SettingsDependency,
+    session: AsyncSession,
+    settings: Settings,
 ) -> ReindexService:
     return ReindexService(
         repository=IndexingRepository(session),

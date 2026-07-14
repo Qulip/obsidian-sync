@@ -22,6 +22,10 @@ from obsidian_sync.schemas.vaults import (
     SyncFileData,
     VaultData,
 )
+from obsidian_sync.services.post_sync_indexing import (
+    NoopPostSyncIndexDispatcher,
+    PostSyncIndexDispatcher,
+)
 from obsidian_sync.services.revision_sync import RevisionSyncService
 from obsidian_sync.services.storage import VaultStorage
 
@@ -46,6 +50,7 @@ class VaultSyncService:
         archived_by: str,
         settings: Settings,
         allow_overwrite: bool = False,
+        post_sync_indexer: PostSyncIndexDispatcher | None = None,
     ) -> None:
         self._session = session
         self._repo = VaultRepository(session)
@@ -53,6 +58,9 @@ class VaultSyncService:
         self._archived_by = archived_by
         self._settings = settings
         self._allow_overwrite = allow_overwrite
+        self._post_sync_index_dispatcher = (
+            post_sync_indexer or NoopPostSyncIndexDispatcher()
+        )
 
     async def create_vault(self, request: CreateVaultRequest) -> CreateVaultData:
         vault_id = _normalize_vault_id(request.vault_id)
@@ -172,6 +180,7 @@ class VaultSyncService:
             self._session,
             self._storage,
             self._settings,
+            post_sync_indexer=self._post_sync_index_dispatcher,
         )
         result = await revision_service.force_put_file(
             normalized_vault_id,
@@ -223,6 +232,7 @@ class VaultSyncService:
             self._session,
             self._storage,
             self._settings,
+            post_sync_indexer=self._post_sync_index_dispatcher,
         )
         result = await revision_service.put_file(
             vault_id,

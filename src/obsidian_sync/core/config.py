@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     sync_max_content_bytes: int = 10 * 1024 * 1024
     sync_changes_default_limit: int = 500
     sync_soft_delete_retention_days: int = 7
+    sync_version_retention_days: int = 90
     search_min_score: float = 0.0
     search_hybrid_enabled: bool = True
     search_candidate_limit: int = 50

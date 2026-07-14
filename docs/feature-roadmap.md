@@ -1,6 +1,6 @@
 # 기능 분석 및 사용성 개선 로드맵
 
-> 작성일: 2026-07-14
+> 작성일: 2026-07-14 / 갱신: 2026-07-14 (Go conflict_policy·watch, 리비전 GC 구현 반영)
 > 대상: FastAPI 백엔드(`src/obsidian_sync/`), Go 동기화 에이전트(`cmd/`, `internal/syncagent/`), Python 호환 CLI(`src/obsidian_sync/sync_agent/`), MCP 도구
 > 관점: 결함이 아닌 **기능 공백** 중심. 결함·견고성 이슈는 [service-defect-usability-analysis.md](service-defect-usability-analysis.md) 참조.
 
@@ -21,8 +21,10 @@
 
 ### 로컬 에이전트
 
-- **Go `obsisync`** (프로덕션 기본 배포): `status` / `sync` / `update`, GET·기기등록 transient 재시도
-- **Python CLI** (호환·롤백 경로): `sync` / `status` / **`watch`**, `conflict_policy`(manual/local-wins/remote-wins), 전 요청 재시도
+- **Go `obsisync`** (프로덕션 기본 배포): `status` / `sync` / `watch` / `update`, `conflict_policy`(manual/local-wins/remote-wins), GET·기기등록 transient 재시도
+- **Python CLI** (호환·롤백 경로): `sync` / `status` / `watch`, `conflict_policy`, 전 요청 재시도(지수 백오프)
+
+2026-07-14 기준 Go/Python 기능 격차는 대부분 해소됐다. 남은 차이: Python은 전 요청 재시도 + 백오프 설정 노출, Go는 안전한 요청(GET/기기등록)만 고정 지연 재시도.
 
 ### 저장은 되지만 노출되지 않은 자산
 
@@ -58,7 +60,7 @@
 - 특정 리비전으로 되돌리기 — 내부적으로는 해당 내용으로 새 리비전 PUT (리비전 체인 불변식 유지)
 - MCP `get_note_history` 도구 — 에이전트가 "이 노트 어제 버전이랑 뭐가 달라졌지"에 답할 수 있게 됨
 
-**연계**: 결함 분석 §3.1(리비전 GC 부재)과 함께 구현하면 "보존 정책 + 조회"가 한 세트로 완성된다. 조회 인터페이스 없이 GC만 만들면 데이터를 버리기만 하는 셈이고, GC 없이 조회만 만들면 무한 증가 문제가 남는다.
+**연계**: 리비전 GC(pruning)는 2026-07-14 구현됐다(`scripts/cleanup_deleted_files.py`, `sync_version_retention_days` 기본 90일, 경로별 최신 리비전 보존). 이제 남은 반쪽이 조회 인터페이스다 — 조회 없이 GC만 있는 현재 상태는 데이터를 버리기만 하는 셈이므로, 히스토리 API를 붙일 때 보존 기간 설정과 함께 안내해야 한다(보존 기간 밖 리비전은 조회 불가).
 
 ### 2.3 휴지통 UX
 
@@ -83,15 +85,14 @@ list_notes(vault_id, folder=None, tag=None, modified_since=None, limit=...)
 
 "최근 일주일 작성 노트 정리해줘", "Projects 폴더에 뭐 있지" 같은 **탐색형** 요청이 가능해진다. 브라우징은 검색과 별개의 접근 축이다.
 
-### 2.5 Go 에이전트 완성: `watch` + `init` + 진행률
+### 2.5 Go 에이전트 완성: ~~`watch`~~ + `init` + 진행률
 
-결함 분석(§2.5, LOW 항목)에서 짚었지만 사용성 관점에서 재강조한다. 단일 바이너리 배포의 핵심 약속은 "이것 하나면 됨"인데, 준실시간 동기화를 원하는 사용자는 "호환용"으로만 남겨둔 Python CLI를 uv 개발 환경째 설치해야 한다.
+가장 큰 항목이었던 `watch`는 2026-07-14 구현됐다(`obsisync watch` — fsnotify 재귀 감시 + debounce + 자체 트리거 루프 방지 게이트). 준실시간 동기화를 위해 Python CLI를 설치해야 하는 상황은 해소됐다.
 
-우선순위 순:
+남은 항목:
 
-1. ~~**`watch`** — fsnotify + debounce 기반 파일 감시 sync~~ (2026-07-14 구현됨: `obsisync watch`)
-2. **`init`** — config.json 대화식 생성 (현재는 손으로 작성해야 함)
-3. **진행률 출력** — 대형 vault 초기 sync 시 멈춤/진행 구분 (현재 엔진에 로깅 호출 자체가 없음)
+1. **`init`** — config.json 대화식 생성 (현재는 손으로 작성해야 함)
+2. **진행률 출력** — 대형 vault 초기 sync 시 멈춤/진행 구분 (엔진에 로깅 호출 자체가 없음; watch 모드가 생기면서 장시간 실행 시 관찰 가능성의 가치가 더 커짐)
 
 ### 2.6 부분 수정 MCP 도구: `append_to_note` / `patch_note`
 
@@ -110,13 +111,13 @@ list_notes(vault_id, folder=None, tag=None, modified_since=None, limit=...)
 
 ### 2.8 Conflict 해결 경험
 
-**현재**: conflict 파일 생성 + exit 1이 전부다. 어떤 conflict가 미해결로 남아 있는지 모아 볼 수 없고, 해결 절차는 문서를 찾아 읽어야 안다.
+**현재** (2026-07-14 갱신): Go에도 `conflict_policy`(local-wins/remote-wins)가 생겨 **자동 해결을 선택한 사용자**의 경험은 해소됐다. 그러나 기본값인 `manual`의 경험은 그대로다 — conflict 파일 생성 + exit 1이 전부이고, 어떤 conflict가 미해결로 남아 있는지 모아 볼 수 없으며, 해결 절차는 문서를 찾아 읽어야 안다.
 
-**제안** (단계적):
+**제안** (단계적, manual 사용자 대상):
 
-1. 서버/CLI에서 미해결 conflict 목록 조회 — `obsisync conflicts`
+1. 서버/CLI에서 미해결 conflict 목록 조회 — `obsisync conflicts` (manifest의 conflicts 맵이 이미 추적 중이므로 출력만 붙이면 됨)
 2. conflict 발생 시 해결 절차 한 줄 안내 출력 (`printSummary` 확장)
-3. (장기) `obsisync resolve --local|--remote <path>` 대화식 해결
+3. (장기) `obsisync resolve --local|--remote <path>` 대화식 해결 — conflict_policy 이식으로 서버 재push/로컬 백업 로직이 이미 존재하므로 이를 경로 단위로 재사용
 
 동기화 도구에서 사용자 스트레스가 가장 큰 순간이 conflict이므로, 이 지점의 경험 개선 체감이 크다.
 
@@ -124,12 +125,12 @@ list_notes(vault_id, folder=None, tag=None, modified_since=None, limit=...)
 
 ## 3. 권장 착수 순서
 
-| 순서 | 기능 | 근거 |
+| 순서 | 기능 | 상태 / 근거 |
 |---|---|---|
-| 1 | 자동 백그라운드 인덱싱 (§2.1) | 매일 체감, 서비스 핵심 가치(검색)와 직결 |
-| 2 | Go `watch` + `init` (§2.5) | 프로덕션 배포 경로의 완성도 |
-| 3 | 휴지통 목록 + 리비전 히스토리 API (§2.2, §2.3) | 데이터가 이미 있어 비용 대비 효과 최대 |
-| 4 | MCP `list_notes` + `append_to_note` (§2.4, §2.6) | 에이전트 활용(주 사용 시나리오) 폭 확장 |
-| 5 | 한국어 lexical 개선, 유사 노트, conflict UX (§2.7, §2.8) | 품질 심화 단계 |
+| 1 | 자동 백그라운드 인덱싱 (§2.1) | 미착수 — 매일 체감, 서비스 핵심 가치(검색)와 직결. **현재 최우선** |
+| 2 | ~~Go `watch`~~ + `init` (§2.5) | watch 완료(2026-07-14). `init`·진행률 남음 |
+| 3 | 휴지통 목록 + 리비전 히스토리 API (§2.2, §2.3) | 미착수 — GC 구현으로 보존 정책은 갖춰짐. 조회 인터페이스가 남은 반쪽 |
+| 4 | MCP `list_notes` + `append_to_note` (§2.4, §2.6) | 미착수 — 에이전트 활용(주 사용 시나리오) 폭 확장 |
+| 5 | 한국어 lexical 개선, 유사 노트, conflict UX (§2.7, §2.8) | 미착수 — conflict UX는 자동 해결(정책) 완료, manual 경험 개선만 남음 |
 
 구현 시 공통 제약: 모든 vault 쓰기는 `RevisionSyncService`를 통과해야 하며(리비전·이벤트·스토리지·롤백 불변식), 스키마 변경은 Alembic 리비전으로만 한다. Go/Python 에이전트 프로토콜 변경은 양쪽 동시 반영이 원칙이다.

@@ -76,12 +76,10 @@ async def reindex_vault(
 ) -> ResponseEnvelope[ReindexResult]:
     """Make saved content searchable.
 
-    Re-embeds uploaded files so they appear in future search_knowledge results.
-    Use mode='changed_only' after saving a note (faster). Use mode='full' only
-    when repairing a broken index.
-
-    Save workflow: PUT /vaults/{vault_id}/files/{path} (or the MCP sync_file
-    tool) → reindex_vault.
+    Successful vectorizable Markdown saves and restores schedule best-effort
+    in-process indexing when post-sync indexing is enabled. Use
+    mode='changed_only' to retry pending or failed files, including after a
+    process restart. Use mode='full' for complete rebuilds.
     """
     service = _service(session=session, settings=settings)
     return ok(await service.reindex_vault(vault_id=vault_id, mode=payload.mode))

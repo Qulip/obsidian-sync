@@ -6,10 +6,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/Qulip/obsidian-sync/internal/syncagent/config"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/engine"
+	"github.com/Qulip/obsidian-sync/internal/syncagent/watch"
 )
 
 const (
@@ -38,6 +43,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runStatus(args[1:], stdout, stderr)
 	case "sync":
 		return runSync(args[1:], stdout, stderr)
+	case "watch":
+		return runWatch(args[1:], stdout, stderr)
 	case "update":
 		return runUpdate(args[1:], stdout, stderr)
 	default:
@@ -55,28 +62,41 @@ func printHelp(output io.Writer) {
 	fmt.Fprintln(output, "Commands:")
 	fmt.Fprintln(output, "  sync")
 	fmt.Fprintln(output, "  status")
+	fmt.Fprintln(output, "  watch")
 	fmt.Fprintln(output, "  update")
 }
 
 type commandOptions struct {
-	vaultRoot                 string
-	vaultID                   string
-	server                    string
-	deviceID                  string
-	verbose                   bool
-	dryRun                    bool
-	requireObsidianRefresh    bool
-	syncAttachments           bool
-	noSyncAttachments         bool
-	attachmentMaxBytes        int64
-	hasAttachmentMaxBytesFlag bool
-	conflictPolicy            string
-	helpRequested             bool
+	vaultRoot                   string
+	vaultID                     string
+	server                      string
+	deviceID                    string
+	verbose                     bool
+	dryRun                      bool
+	requireObsidianRefresh      bool
+	syncAttachments             bool
+	noSyncAttachments           bool
+	attachmentMaxBytes          int64
+	hasAttachmentMaxBytesFlag   bool
+	conflictPolicy              string
+	watchDebounceSeconds        float64
+	hasWatchDebounceSecondsFlag bool
+	watchIntervalSeconds        float64
+	hasWatchIntervalSecondsFlag bool
+	helpRequested               bool
 }
 
 type commandSpec struct {
-	name             string
+	name string
+	// includeSyncFlags gates --dry-run, only meaningful for `sync`.
 	includeSyncFlags bool
+	// includeWriteFlags gates flags shared by any command that runs a sync
+	// cycle (`sync` and `watch`): --require-obsidian-refresh,
+	// --sync-attachments/--no-sync-attachments, --attachment-max-bytes,
+	// --conflict-policy.
+	includeWriteFlags bool
+	// includeWatchFlags gates flags specific to `watch`.
+	includeWatchFlags bool
 }
 
 type commandIO struct {
@@ -108,7 +128,7 @@ func runStatus(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func runSync(args []string, stdout io.Writer, stderr io.Writer) int {
-	options, ok := parseCommand(commandSpec{name: "sync", includeSyncFlags: true}, args, commandIO{
+	options, ok := parseCommand(commandSpec{name: "sync", includeSyncFlags: true, includeWriteFlags: true}, args, commandIO{
 		stdout: stdout,
 		stderr: stderr,
 	})
@@ -144,6 +164,69 @@ func runSync(args []string, stdout io.Writer, stderr io.Writer) int {
 	return exitOK
 }
 
+// runWatch runs the `watch` foreground daemon: it watches the vault for
+// filesystem changes and runs a sync cycle after debounced bursts (plus,
+// optionally, on a periodic safety-net interval). It always returns exitOK
+// on a clean shutdown (SIGINT/SIGTERM), mirroring
+// obsidian_sync.sync_agent.watch.run_watch, whose docstring states it
+// "Always exits 0" — individual sync-cycle failures are logged and retried
+// inside the loop, never surfaced as a process exit code.
+func runWatch(args []string, stdout io.Writer, stderr io.Writer) int {
+	options, ok := parseCommand(commandSpec{name: "watch", includeWriteFlags: true, includeWatchFlags: true}, args, commandIO{
+		stdout: stdout,
+		stderr: stderr,
+	})
+	if !ok {
+		return exitError
+	}
+	if options.helpRequested {
+		return exitOK
+	}
+	overrides := options.overrides(options.requireObsidianRefresh)
+	agentConfig, err := config.Load(overrides)
+	if err != nil {
+		return writeCommandError(stderr, "configuration error", err)
+	}
+
+	logger := log.New(stderr, "", log.LstdFlags)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		logger.Println("watch: received signal, finishing current sync then stopping")
+	}()
+
+	syncFn := func(syncCtx context.Context) (watch.SyncOutcome, error) {
+		summary, syncErr := engine.RunSync(syncCtx, agentConfig, engine.Options{})
+		if syncErr != nil {
+			return watch.SyncOutcome{}, syncErr
+		}
+		return watch.SyncOutcome{
+			Pulled:    summary.Pulled,
+			Applied:   summary.Applied,
+			Pushed:    summary.Pushed,
+			Conflicts: len(summary.Conflicts),
+		}, nil
+	}
+
+	if err := watch.Run(ctx, watch.RunOptions{
+		VaultRoot:         agentConfig.VaultRoot,
+		SyncAttachments:   agentConfig.SyncAttachments,
+		DebounceInterval:  secondsToDuration(agentConfig.WatchDebounceSeconds),
+		SafetyNetInterval: secondsToDuration(agentConfig.WatchIntervalSeconds),
+		Logger:            logger,
+		Sync:              syncFn,
+	}); err != nil {
+		return writeCommandError(stderr, "watch failed", err)
+	}
+	return exitOK
+}
+
+func secondsToDuration(seconds float64) time.Duration {
+	return time.Duration(seconds * float64(time.Second))
+}
+
 func parseCommand(spec commandSpec, args []string, stdio commandIO) (commandOptions, bool) {
 	var options commandOptions
 	flags := flag.NewFlagSet(spec.name, flag.ContinueOnError)
@@ -158,11 +241,17 @@ func parseCommand(spec commandSpec, args []string, stdio commandIO) (commandOpti
 	flags.BoolVar(&options.verbose, "verbose", false, "enable debug logging")
 	if spec.includeSyncFlags {
 		flags.BoolVar(&options.dryRun, "dry-run", false, "print planned actions without writing or pushing")
+	}
+	if spec.includeWriteFlags {
 		flags.BoolVar(&options.requireObsidianRefresh, "require-obsidian-refresh", false, "exit non-zero if the Obsidian refresh step fails")
 		flags.BoolVar(&options.syncAttachments, "sync-attachments", false, "enable attachment (image/PDF) sync")
 		flags.BoolVar(&options.noSyncAttachments, "no-sync-attachments", false, "disable attachment sync even if enabled via config/env")
 		flags.Int64Var(&options.attachmentMaxBytes, "attachment-max-bytes", 0, "local attachment size filter in bytes")
 		flags.StringVar(&options.conflictPolicy, "conflict-policy", "", "conflict resolution policy: manual, local-wins, remote-wins")
+	}
+	if spec.includeWatchFlags {
+		flags.Float64Var(&options.watchDebounceSeconds, "watch-debounce-seconds", 0, "quiet period (seconds) after the last change before syncing")
+		flags.Float64Var(&options.watchIntervalSeconds, "watch-interval-seconds", 0, "periodic safety-net sync interval (seconds); 0 disables it")
 	}
 	for _, arg := range args {
 		if arg == "--help" || arg == "-h" || arg == "-help" {
@@ -183,8 +272,13 @@ func parseCommand(spec commandSpec, args []string, stdio commandIO) (commandOpti
 		return commandOptions{}, false
 	}
 	flags.Visit(func(f *flag.Flag) {
-		if f.Name == "attachment-max-bytes" {
+		switch f.Name {
+		case "attachment-max-bytes":
 			options.hasAttachmentMaxBytesFlag = true
+		case "watch-debounce-seconds":
+			options.hasWatchDebounceSecondsFlag = true
+		case "watch-interval-seconds":
+			options.hasWatchIntervalSecondsFlag = true
 		}
 	})
 	return options, true
@@ -205,8 +299,14 @@ func printCommandHelp(output io.Writer, spec commandSpec) {
 	if spec.includeSyncFlags {
 		fmt.Fprintln(output, "  --dry-run")
 		fmt.Fprintln(output, "    \tprint planned actions without writing or pushing")
+	}
+	if spec.includeWriteFlags {
 		fmt.Fprintln(output, "  --require-obsidian-refresh")
-		fmt.Fprintln(output, "    \texit non-zero if the Obsidian refresh step fails")
+		if spec.name == "watch" {
+			fmt.Fprintln(output, "    \tlog an error if the Obsidian refresh step fails after a sync")
+		} else {
+			fmt.Fprintln(output, "    \texit non-zero if the Obsidian refresh step fails")
+		}
 		fmt.Fprintln(output, "  --sync-attachments")
 		fmt.Fprintln(output, "    \tenable attachment (image/PDF) sync")
 		fmt.Fprintln(output, "  --no-sync-attachments")
@@ -216,21 +316,31 @@ func printCommandHelp(output io.Writer, spec commandSpec) {
 		fmt.Fprintln(output, "  --conflict-policy string")
 		fmt.Fprintln(output, "    \tconflict resolution policy: manual, local-wins, remote-wins")
 	}
+	if spec.includeWatchFlags {
+		fmt.Fprintln(output, "  --watch-debounce-seconds float")
+		fmt.Fprintln(output, "    \tquiet period (seconds) after the last change before syncing")
+		fmt.Fprintln(output, "  --watch-interval-seconds float")
+		fmt.Fprintln(output, "    \tperiodic safety-net sync interval (seconds); 0 disables it")
+	}
 }
 
 func (o commandOptions) overrides(requireRefreshSet bool) config.CLIOverrides {
 	return config.CLIOverrides{
-		VaultRoot:                     o.vaultRoot,
-		VaultID:                       o.vaultID,
-		ServerBaseURL:                 o.server,
-		DeviceID:                      o.deviceID,
-		RequireObsidianRefresh:        o.requireObsidianRefresh,
-		HasRequireRefreshOverride:     requireRefreshSet,
-		SyncAttachments:               o.syncAttachments && !o.noSyncAttachments,
-		HasSyncAttachmentsOverride:    o.syncAttachments || o.noSyncAttachments,
-		AttachmentMaxBytes:            o.attachmentMaxBytes,
-		HasAttachmentMaxBytesOverride: o.hasAttachmentMaxBytesFlag,
-		ConflictPolicy:                o.conflictPolicy,
+		VaultRoot:                       o.vaultRoot,
+		VaultID:                         o.vaultID,
+		ServerBaseURL:                   o.server,
+		DeviceID:                        o.deviceID,
+		RequireObsidianRefresh:          o.requireObsidianRefresh,
+		HasRequireRefreshOverride:       requireRefreshSet,
+		SyncAttachments:                 o.syncAttachments && !o.noSyncAttachments,
+		HasSyncAttachmentsOverride:      o.syncAttachments || o.noSyncAttachments,
+		AttachmentMaxBytes:              o.attachmentMaxBytes,
+		HasAttachmentMaxBytesOverride:   o.hasAttachmentMaxBytesFlag,
+		ConflictPolicy:                  o.conflictPolicy,
+		WatchDebounceSeconds:            o.watchDebounceSeconds,
+		HasWatchDebounceSecondsOverride: o.hasWatchDebounceSecondsFlag,
+		WatchIntervalSeconds:            o.watchIntervalSeconds,
+		HasWatchIntervalSecondsOverride: o.hasWatchIntervalSecondsFlag,
 	}
 }
 

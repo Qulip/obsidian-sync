@@ -30,6 +30,17 @@ const (
 	SyncAttachmentsEnv    = "OBSIDIAN_SYNC_AGENT_SYNC_ATTACHMENTS"
 	AttachmentMaxBytesEnv = "OBSIDIAN_SYNC_AGENT_ATTACHMENT_MAX_BYTES"
 	ConflictPolicyEnv     = "OBSIDIAN_SYNC_AGENT_CONFLICT_POLICY"
+
+	WatchDebounceSecondsEnv = "OBSIDIAN_SYNC_AGENT_WATCH_DEBOUNCE_SECONDS"
+	WatchIntervalSecondsEnv = "OBSIDIAN_SYNC_AGENT_WATCH_INTERVAL_SECONDS"
+
+	// DefaultWatchDebounceSeconds is how long `watch` waits for filesystem
+	// events to go quiet before running a sync cycle (matches the Python
+	// agent's watch_debounce_seconds default).
+	DefaultWatchDebounceSeconds float64 = 2.0
+	// DefaultWatchIntervalSeconds is the periodic safety-net sync interval
+	// for `watch` mode; 0 disables it (rely on filesystem events only).
+	DefaultWatchIntervalSeconds float64 = 0.0
 )
 
 // ConflictPolicy selects how the agent handles a 409 SYNC_CONFLICT: leave it
@@ -87,20 +98,26 @@ type AgentConfig struct {
 	SyncAttachments        bool
 	AttachmentMaxBytes     int64
 	ConflictPolicy         ConflictPolicy
+	WatchDebounceSeconds   float64
+	WatchIntervalSeconds   float64
 }
 
 type CLIOverrides struct {
-	VaultRoot                     string
-	VaultID                       string
-	ServerBaseURL                 string
-	DeviceID                      string
-	RequireObsidianRefresh        bool
-	HasRequireRefreshOverride     bool
-	SyncAttachments               bool
-	HasSyncAttachmentsOverride    bool
-	AttachmentMaxBytes            int64
-	HasAttachmentMaxBytesOverride bool
-	ConflictPolicy                string
+	VaultRoot                       string
+	VaultID                         string
+	ServerBaseURL                   string
+	DeviceID                        string
+	RequireObsidianRefresh          bool
+	HasRequireRefreshOverride       bool
+	SyncAttachments                 bool
+	HasSyncAttachmentsOverride      bool
+	AttachmentMaxBytes              int64
+	HasAttachmentMaxBytesOverride   bool
+	ConflictPolicy                  string
+	WatchDebounceSeconds            float64
+	HasWatchDebounceSecondsOverride bool
+	WatchIntervalSeconds            float64
+	HasWatchIntervalSecondsOverride bool
 }
 
 type fileConfig struct {
@@ -113,6 +130,8 @@ type fileConfig struct {
 	SyncAttachments        *bool               `json:"sync_attachments"`
 	AttachmentMaxBytes     *int64              `json:"attachment_max_bytes"`
 	ConflictPolicy         string              `json:"conflict_policy"`
+	WatchDebounceSeconds   *float64            `json:"watch_debounce_seconds"`
+	WatchIntervalSeconds   *float64            `json:"watch_interval_seconds"`
 }
 
 type fileObsidianConfig struct {
@@ -165,6 +184,14 @@ func Load(overrides CLIOverrides) (AgentConfig, error) {
 	if err != nil {
 		return AgentConfig{}, err
 	}
+	watchDebounceSeconds, err := resolveWatchDebounceSeconds(overrides, fileData)
+	if err != nil {
+		return AgentConfig{}, err
+	}
+	watchIntervalSeconds, err := resolveWatchIntervalSeconds(overrides, fileData)
+	if err != nil {
+		return AgentConfig{}, err
+	}
 
 	return AgentConfig{
 		ServerBaseURL:          strings.TrimRight(server, "/"),
@@ -178,6 +205,8 @@ func Load(overrides CLIOverrides) (AgentConfig, error) {
 		SyncAttachments:        syncAttachments,
 		AttachmentMaxBytes:     attachmentMaxBytes,
 		ConflictPolicy:         conflictPolicy,
+		WatchDebounceSeconds:   watchDebounceSeconds,
+		WatchIntervalSeconds:   watchIntervalSeconds,
 	}, nil
 }
 
@@ -333,6 +362,54 @@ func resolveConflictPolicy(overrides CLIOverrides, data fileConfig) (ConflictPol
 		}
 	}
 	return "", newConfigError("conflict_policy must be one of %s, got %q", conflictPolicyNames(), raw)
+}
+
+func resolveWatchDebounceSeconds(overrides CLIOverrides, data fileConfig) (float64, error) {
+	if overrides.HasWatchDebounceSecondsOverride {
+		return validateWatchDebounceSeconds(overrides.WatchDebounceSeconds)
+	}
+	if raw := os.Getenv(WatchDebounceSecondsEnv); raw != "" {
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return 0, newConfigError("invalid %s value %q: must be a number", WatchDebounceSecondsEnv, raw)
+		}
+		return validateWatchDebounceSeconds(value)
+	}
+	if data.WatchDebounceSeconds != nil {
+		return validateWatchDebounceSeconds(*data.WatchDebounceSeconds)
+	}
+	return DefaultWatchDebounceSeconds, nil
+}
+
+func validateWatchDebounceSeconds(value float64) (float64, error) {
+	if value <= 0 {
+		return 0, newConfigError("watch_debounce_seconds must be greater than zero, got %v", value)
+	}
+	return value, nil
+}
+
+func resolveWatchIntervalSeconds(overrides CLIOverrides, data fileConfig) (float64, error) {
+	if overrides.HasWatchIntervalSecondsOverride {
+		return validateWatchIntervalSeconds(overrides.WatchIntervalSeconds)
+	}
+	if raw := os.Getenv(WatchIntervalSecondsEnv); raw != "" {
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return 0, newConfigError("invalid %s value %q: must be a number", WatchIntervalSecondsEnv, raw)
+		}
+		return validateWatchIntervalSeconds(value)
+	}
+	if data.WatchIntervalSeconds != nil {
+		return validateWatchIntervalSeconds(*data.WatchIntervalSeconds)
+	}
+	return DefaultWatchIntervalSeconds, nil
+}
+
+func validateWatchIntervalSeconds(value float64) (float64, error) {
+	if value < 0 {
+		return 0, newConfigError("watch_interval_seconds must be zero or greater, got %v", value)
+	}
+	return value, nil
 }
 
 func conflictPolicyNames() string {

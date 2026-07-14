@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -242,7 +243,7 @@ func TestParseCommand_setsAttachmentMaxBytesOverride_onlyWhenFlagPassed(t *testi
 	var stdout, stderr bytes.Buffer
 
 	// When flag is passed
-	options, ok := parseCommand(commandSpec{name: "sync", includeSyncFlags: true}, []string{"--attachment-max-bytes", "42"}, commandIO{stdout: &stdout, stderr: &stderr})
+	options, ok := parseCommand(commandSpec{name: "sync", includeSyncFlags: true, includeWriteFlags: true}, []string{"--attachment-max-bytes", "42"}, commandIO{stdout: &stdout, stderr: &stderr})
 
 	// Then
 	if !ok {
@@ -254,7 +255,7 @@ func TestParseCommand_setsAttachmentMaxBytesOverride_onlyWhenFlagPassed(t *testi
 	}
 
 	// When flag is omitted
-	options, ok = parseCommand(commandSpec{name: "sync", includeSyncFlags: true}, []string{}, commandIO{stdout: &stdout, stderr: &stderr})
+	options, ok = parseCommand(commandSpec{name: "sync", includeSyncFlags: true, includeWriteFlags: true}, []string{}, commandIO{stdout: &stdout, stderr: &stderr})
 
 	// Then
 	if !ok {
@@ -432,6 +433,117 @@ func TestRunSync_rejectsInvalidConflictPolicyFlag(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "conflict_policy") {
 		t.Fatalf("stderr = %q, want mention of conflict_policy", stderr.String())
+	}
+}
+
+func TestRunWatch_returnsConfigError_whenServerMissing(t *testing.T) {
+	// Given: watch should fail fast on a config error, the same as sync and
+	// status, without ever starting the filesystem watcher.
+	root := t.TempDir()
+	clearCommandEnv(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When
+	code := run([]string{"watch", "--vault-root", root, "--vault-id", "vault"}, &stdout, &stderr)
+
+	// Then
+	if code != exitError {
+		t.Fatalf("exit code = %d, want %d, stderr = %q", code, exitError, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "configuration error") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunWatch_rejectsInvalidConflictPolicyFlag(t *testing.T) {
+	// Given: watch shares conflict-policy validation with sync (config.Load
+	// is the single source of truth for both).
+	root := t.TempDir()
+	clearCommandEnv(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When
+	code := run([]string{
+		"watch",
+		"--vault-root", root,
+		"--server", "http://127.0.0.1:1",
+		"--vault-id", "vault",
+		"--conflict-policy", "not-a-policy",
+	}, &stdout, &stderr)
+
+	// Then
+	if code != exitError {
+		t.Fatalf("exit code = %d, want %d, stderr = %q", code, exitError, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "conflict_policy") {
+		t.Fatalf("stderr = %q, want mention of conflict_policy", stderr.String())
+	}
+}
+
+func TestRunWatch_rejectsNonPositiveWatchDebounceSecondsFlag(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearCommandEnv(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When
+	code := run([]string{
+		"watch",
+		"--vault-root", root,
+		"--server", "http://127.0.0.1:1",
+		"--vault-id", "vault",
+		"--watch-debounce-seconds", "0",
+	}, &stdout, &stderr)
+
+	// Then
+	if code != exitError {
+		t.Fatalf("exit code = %d, want %d, stderr = %q", code, exitError, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "watch_debounce_seconds") {
+		t.Fatalf("stderr = %q, want mention of watch_debounce_seconds", stderr.String())
+	}
+}
+
+func TestCommandOptions_overrides_watchSettings(t *testing.T) {
+	// Given
+	options, ok := parseCommand(
+		commandSpec{name: "watch", includeWriteFlags: true, includeWatchFlags: true},
+		[]string{"--watch-debounce-seconds", "1.5", "--watch-interval-seconds", "600"},
+		commandIO{stdout: io.Discard, stderr: io.Discard},
+	)
+	if !ok {
+		t.Fatal("parseCommand() ok = false")
+	}
+
+	// When
+	overrides := options.overrides(false)
+
+	// Then
+	if !overrides.HasWatchDebounceSecondsOverride || overrides.WatchDebounceSeconds != 1.5 {
+		t.Fatalf("watch debounce override = %#v", overrides)
+	}
+	if !overrides.HasWatchIntervalSecondsOverride || overrides.WatchIntervalSeconds != 600 {
+		t.Fatalf("watch interval override = %#v", overrides)
+	}
+
+	// And: omitted flags leave HasOverride false.
+	options, ok = parseCommand(
+		commandSpec{name: "watch", includeWriteFlags: true, includeWatchFlags: true},
+		[]string{},
+		commandIO{stdout: io.Discard, stderr: io.Discard},
+	)
+	if !ok {
+		t.Fatal("parseCommand() ok = false")
+	}
+	overrides = options.overrides(false)
+	if overrides.HasWatchDebounceSecondsOverride || overrides.HasWatchIntervalSecondsOverride {
+		t.Fatalf("overrides = %#v, want no watch overrides when flags are omitted", overrides)
 	}
 }
 

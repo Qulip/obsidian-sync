@@ -49,8 +49,9 @@ uv run obsidian-sync-agent --help
 ```
 obsisync sync                [옵션]   # 전체 sync 사이클 실행
 obsisync status              [옵션]   # 서버 및 로컬 상태 출력
+obsisync watch                [옵션]   # 포그라운드 상주: 파일 변경 감지 후 sync 실행
 obsisync update                        # 최신 Release 확인 및 설치
-obsidian-sync-agent watch   [옵션]   # 포그라운드 상주: 파일 변경 감지 후 sync 실행
+obsidian-sync-agent watch    [옵션]   # (호환) Python CLI의 동일 기능
 ```
 
 `obsisync update`는 GitHub의 최신 안정 Release를 확인하고, 업데이트가 있으면
@@ -129,8 +130,8 @@ Config 파일 위치: `{vault_root}/.obsidian-sync-agent/config.json`
 
 ### watch 모드 설정
 
-Python `obsidian-sync-agent watch`에서만 쓰이는 설정입니다. 자세한 동작은
-[watch 모드](#watch-모드) 섹션을 참고하세요.
+`obsisync watch`와 Python `obsidian-sync-agent watch` 모두 지원합니다. 자세한
+동작은 [watch 모드](#watch-모드) 섹션을 참고하세요.
 
 | 항목 | CLI 인수 | 환경 변수 | Config 파일 키 | 기본값 |
 |---|---|---|---|---|
@@ -503,12 +504,17 @@ obsisync sync --vault-root ~/ObsidianVault --sync-attachments
 ## watch 모드
 
 ```bash
-obsidian-sync-agent watch --vault-root ~/ObsidianVault
+obsisync watch --vault-root ~/ObsidianVault
 ```
 
-`watch`는 cron으로 스케줄링하는 `sync`와 달리 포그라운드에 상주하며
-[`watchdog`](https://pypi.org/project/watchdog/)로 vault 전체를 재귀 감시하다가
-변경이 있을 때마다 sync를 실행합니다.
+`watch`는 cron으로 스케줄링하는 `sync`와 달리 포그라운드에 상주하며 vault
+전체를 재귀 감시하다가 변경이 있을 때마다 sync를 실행합니다. Go 에이전트는
+[`fsnotify`](https://github.com/fsnotify/fsnotify)로, Python 에이전트는
+[`watchdog`](https://pypi.org/project/watchdog/)로 구현되어 있으며, 아래 설명된
+debounce·자기 쓰기 재감지 방지·안전망·필터링·종료 처리는 두 구현이 동일하게
+따릅니다. `fsnotify`는 OS 네이티브 재귀 감시가 없으므로 Go 구현은 하위
+디렉터리 각각에 개별 watch를 걸고, 새 디렉터리가 생성되면 즉시 그 아래로
+watch를 확장합니다(제외 대상 디렉터리는 확장하지 않음).
 
 ### Debounce (일괄 처리)
 
@@ -555,9 +561,15 @@ watcher가 아무 이벤트도 못 받는 경우(예: 다른 기기가 push)에 
 
 `SIGINT`/`SIGTERM`을 받으면 진행 중인 sync를 끝까지 마친 뒤 깨끗이 종료합니다
 (강제 중단하지 않음). 연속으로 sync가 실패해도(네트워크 장애 등) 프로세스는
-죽지 않고 지수 백오프(`retry_base_delay` 기준, `retry_max_delay` 상한)로 재시도를
-계속하며, 실패는 로그로만 남깁니다 — `sync` 커맨드의 conflict/error 종료 코드는
-watch 모드에는 적용되지 않습니다.
+죽지 않고 지수 백오프로 재시도를 계속하며, 실패는 로그로만 남깁니다 — `sync`
+커맨드의 conflict/error 종료 코드는 watch 모드에는 적용되지 않고, 항상 종료
+코드 `0`으로 끝납니다.
+
+Python 에이전트는 이 백오프에 [재시도 설정](#재시도-설정)의
+`retry_base_delay`/`retry_max_delay`를 재사용합니다. Go 에이전트는 HTTP 요청
+재시도 자체가 고정 지연(설정 불가)이라 대응하는 설정 항목이 없으므로, watch
+사이클 사이 백오프는 동일한 기본값(기본 지연 1초, 최대 지연 30초)을 고정값으로
+사용합니다.
 
 ### cron/launchd 대비
 
@@ -570,14 +582,16 @@ watch 모드에는 적용되지 않습니다.
 
 ```bash
 # 기본 watch (debounce 2초, 안전망 비활성)
-obsidian-sync-agent watch --vault-root ~/ObsidianVault
+obsisync watch --vault-root ~/ObsidianVault
 
 # debounce를 짧게, 10분 안전망 추가
-obsidian-sync-agent watch \
+obsisync watch \
   --vault-root ~/ObsidianVault \
   --watch-debounce-seconds 1 \
   --watch-interval-seconds 600
 ```
+
+Python CLI에서도 동일하게 동작합니다(`obsidian-sync-agent watch ...`).
 
 ---
 

@@ -47,8 +47,9 @@ func (r *syncRun) pull(deviceID string) error {
 		}
 		cursor = page.ToCursor
 	}
-	if cursor > r.state.LastSyncCursor {
+	if cursor > r.state.LastSyncCursor && len(r.unsafePullPaths) == 0 {
 		r.state.LastSyncCursor = cursor
+		return r.saveManifest()
 	}
 	return nil
 }
@@ -66,14 +67,16 @@ func (r *syncRun) applyChange(item client.SyncChangeItem) error {
 	}
 	safeDestination, err := vaultfs.SafePath(r.cfg.VaultRoot, item.Path)
 	if err != nil {
-		return fmt.Errorf("validate local file %s: %w", item.Path, err)
+		r.summary.Warnings = append(r.summary.Warnings, "rejected unsafe server path: "+item.Path+"; skipped")
+		r.markUnsafePullPath(item.Path)
+		return nil
 	}
 	entry, tracked := r.state.Files[item.Path]
 	isDelete := item.Deleted || item.EventType == deleteEvent
 	if !isDelete && tracked && item.ContentHash != nil && entry.ContentHash == *item.ContentHash {
 		entry.ServerRevision = item.Revision
 		r.state.Files[item.Path] = entry
-		return nil
+		return r.saveManifest()
 	}
 	change := pullChange{
 		item:        item,
@@ -87,10 +90,17 @@ func (r *syncRun) applyChange(item client.SyncChangeItem) error {
 	return r.applyWrite(change)
 }
 
+func (r *syncRun) markUnsafePullPath(path string) {
+	if r.unsafePullPaths == nil {
+		r.unsafePullPaths = map[string]struct{}{}
+	}
+	r.unsafePullPaths[path] = struct{}{}
+}
+
 func (r *syncRun) applyDelete(change pullChange) error {
 	if !existsPath(change.destination) {
 		delete(r.state.Files, change.item.Path)
-		return nil
+		return r.saveManifest()
 	}
 	localHash, err := hashFile(change.destination)
 	if err != nil {
@@ -103,7 +113,7 @@ func (r *syncRun) applyDelete(change pullChange) error {
 		delete(r.state.Files, change.item.Path)
 		delete(r.state.Conflicts, change.item.Path)
 		r.summary.LocallyDeleted++
-		return nil
+		return r.saveManifest()
 	}
 	if err := r.writeDeleteConflict(change); err != nil {
 		return err
@@ -115,7 +125,7 @@ func (r *syncRun) applyDelete(change pullChange) error {
 		ServerDeleted:     true,
 	}
 	r.summary.Conflicts = append(r.summary.Conflicts, change.item.Path)
-	return nil
+	return r.saveManifest()
 }
 
 func (r *syncRun) writeDeleteConflict(change pullChange) error {
@@ -183,7 +193,7 @@ func (r *syncRun) applyWrite(change pullChange) error {
 	}
 	delete(r.state.Conflicts, change.item.Path)
 	r.summary.Applied++
-	return nil
+	return r.saveManifest()
 }
 
 func (r *syncRun) writePullConflict(change pullChange, localHash string, serverFile client.FileContentData) error {
@@ -226,7 +236,7 @@ func (r *syncRun) writePullConflict(change pullChange, localHash string, serverF
 		ServerDeleted:     false,
 	}
 	r.summary.Conflicts = append(r.summary.Conflicts, change.item.Path)
-	return nil
+	return r.saveManifest()
 }
 
 func localDirty(localHash string, serverHash string, change pullChange) bool {

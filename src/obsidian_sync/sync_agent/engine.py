@@ -141,6 +141,10 @@ def _run(
     _pull(config, manifest, client, summary, logger, device_id=config.device_id)
 
 
+def _save_manifest(config: AgentConfig, manifest: Manifest) -> None:
+    save_manifest(config.vault_root, manifest)
+
+
 def _plan(
     config: AgentConfig,
     manifest: Manifest,
@@ -222,7 +226,9 @@ def _pull(
             cursor = max(cursor, page.to_cursor)
             break
         cursor = page.to_cursor
-    manifest.last_sync_cursor = max(manifest.last_sync_cursor, cursor)
+    if cursor > manifest.last_sync_cursor:
+        manifest.last_sync_cursor = cursor
+        _save_manifest(config, manifest)
 
 
 def _apply_change(
@@ -250,6 +256,7 @@ def _apply_change(
         if entry.content_hash == change.content_hash:
             entry.server_revision = change.revision
             logger.debug('no-op change for %s (revision %s)', path, change.revision)
+            _save_manifest(config, manifest)
             return
 
     if is_delete:
@@ -274,6 +281,7 @@ def _apply_delete(
     if not destination.exists():
         manifest.files.pop(path, None)
         logger.debug('delete %s already applied locally', path)
+        _save_manifest(config, manifest)
         return
     local_hash = sha256_file(destination)
     if entry is not None and local_hash == entry.content_hash:
@@ -282,6 +290,7 @@ def _apply_delete(
         manifest.conflicts.pop(path, None)
         summary.locally_deleted += 1
         logger.info('deleted %s (server revision %s)', path, change.revision)
+        _save_manifest(config, manifest)
         return
     resolve_pull_delete_conflict(
         config,
@@ -294,6 +303,7 @@ def _apply_delete(
         entry,
         local_hash,
     )
+    _save_manifest(config, manifest)
 
 
 def _apply_write(
@@ -336,6 +346,7 @@ def _apply_write(
                 local_hash,
                 server_file,
             )
+            _save_manifest(config, manifest)
             return
 
     write_server_content(destination, server_file)
@@ -352,6 +363,7 @@ def _apply_write(
         path,
         server_file.revision,
     )
+    _save_manifest(config, manifest)
 
 
 def _push(
@@ -423,6 +435,7 @@ def _push_upsert(
             content,
             is_delete=False,
         )
+        _save_manifest(config, manifest)
         return
     manifest.files[path] = ManifestEntry(
         server_revision=result.revision,
@@ -432,6 +445,7 @@ def _push_upsert(
     manifest.conflicts.pop(path, None)
     summary.pushed += 1
     logger.info('pushed %s (revision %s)', path, result.revision)
+    _save_manifest(config, manifest)
 
 
 def _push_delete(
@@ -448,6 +462,7 @@ def _push_delete(
         manifest.files.pop(path, None)
         manifest.conflicts.pop(path, None)
         logger.info('accepted server delete for %s', path)
+        _save_manifest(config, manifest)
         return
     base_revision = (
         conflict.server_revision
@@ -475,11 +490,13 @@ def _push_delete(
             None,
             is_delete=True,
         )
+        _save_manifest(config, manifest)
         return
     manifest.files.pop(path, None)
     manifest.conflicts.pop(path, None)
     summary.remotely_deleted += 1
     logger.info('deleted %s on server', path)
+    _save_manifest(config, manifest)
 
 
 def _run_obsidian(

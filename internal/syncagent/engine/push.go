@@ -112,7 +112,7 @@ func (r *syncRun) pushUpsert(file pushFile) error {
 	}
 	delete(r.state.Conflicts, file.path)
 	r.summary.Pushed++
-	return nil
+	return r.saveManifest()
 }
 
 func (r *syncRun) pushDelete(path string) error {
@@ -121,7 +121,7 @@ func (r *syncRun) pushDelete(path string) error {
 	if hasConflict && trackedConflict.ServerDeleted {
 		delete(r.state.Files, path)
 		delete(r.state.Conflicts, path)
-		return nil
+		return r.saveManifest()
 	}
 	base := baseRevision(entry, tracked)
 	if hasConflict {
@@ -141,7 +141,7 @@ func (r *syncRun) pushDelete(path string) error {
 	delete(r.state.Files, path)
 	delete(r.state.Conflicts, path)
 	r.summary.RemotelyDeleted++
-	return nil
+	return r.saveManifest()
 }
 
 func (r *syncRun) pushConflict(file pushFile) error {

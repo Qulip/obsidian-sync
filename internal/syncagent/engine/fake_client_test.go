@@ -9,18 +9,20 @@ import (
 )
 
 type fakeClient struct {
-	changes            []client.SyncChangeItem
-	files              map[string]client.FileContentData
-	getFileErrors      map[string]error
-	status             client.SyncStatusData
-	putConflict        map[string]map[string]json.RawMessage
-	registerCalls      int
-	nextRevision       int
-	getChangesCalls    []client.ChangesRequest
-	secondPullDeviceID string
-	statusDeviceID     string
-	puts               []putCall
-	deletes            []deleteCall
+	changes             []client.SyncChangeItem
+	files               map[string]client.FileContentData
+	getFileErrors       map[string]error
+	status              client.SyncStatusData
+	putConflict         map[string]map[string]json.RawMessage
+	registerCalls       int
+	nextRevision        int
+	getChangesCalls     []client.ChangesRequest
+	getChangesErrOnCall int
+	getChangesErr       error
+	secondPullDeviceID  string
+	statusDeviceID      string
+	puts                []putCall
+	deletes             []deleteCall
 }
 
 type putCall struct {
@@ -53,6 +55,12 @@ func (f *fakeClient) RegisterDevice(_ context.Context, _ string, _ client.Regist
 
 func (f *fakeClient) GetChanges(_ context.Context, _ string, query client.ChangesRequest) (client.SyncChangesData, error) {
 	f.getChangesCalls = append(f.getChangesCalls, query)
+	if f.getChangesErrOnCall > 0 && len(f.getChangesCalls) == f.getChangesErrOnCall {
+		if f.getChangesErr != nil {
+			return client.SyncChangesData{}, f.getChangesErr
+		}
+		return client.SyncChangesData{}, errors.New("forced get changes failure")
+	}
 	if query.DeviceID != "" {
 		f.secondPullDeviceID = query.DeviceID
 	}

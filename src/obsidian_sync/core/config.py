@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     search_rerank_model: str = ''
     search_rerank_candidates: int = 15
     search_per_source_limit: int = 2
+    post_sync_indexing_enabled: bool = True
     database_url: str | None = Field(
         default=None,
         validation_alias=AliasChoices(

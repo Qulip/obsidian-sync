@@ -49,8 +49,13 @@ uv run obsidian-sync-agent --help
 ```
 obsisync sync                [옵션]   # 전체 sync 사이클 실행
 obsisync status              [옵션]   # 서버 및 로컬 상태 출력
+obsisync update                        # 최신 Release 확인 및 설치
 obsidian-sync-agent watch   [옵션]   # 포그라운드 상주: 파일 변경 감지 후 sync 실행
 ```
+
+`obsisync update`는 GitHub의 최신 안정 Release를 확인하고, 업데이트가 있으면
+사용자 확인 후 현재 실행 파일을 교체합니다. Release 자산의 SHA-256 digest가
+일치하지 않으면 설치하지 않습니다.
 
 ---
 

@@ -346,6 +346,14 @@ obsisync sync --vault-root "$HOME/ObsidianVault" --dry-run
 obsisync status --vault-root "$HOME/ObsidianVault"
 ```
 
+설치된 CLI를 최신 GitHub Release로 갱신하려면:
+
+```bash
+obsisync update
+```
+
+업데이트 가능 여부를 확인한 뒤 설치 확인을 받습니다.
+
 주기 실행은 cron/launchd/systemd timer로 위 `sync` 명령을 반복 호출하면 됩니다.
 
 Exit codes:

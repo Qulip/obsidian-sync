@@ -38,6 +38,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runStatus(args[1:], stdout, stderr)
 	case "sync":
 		return runSync(args[1:], stdout, stderr)
+	case "update":
+		return runUpdate(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "%s: unknown command %q\n", commandName, args[0])
 		return exitError
@@ -53,6 +55,7 @@ func printHelp(output io.Writer) {
 	fmt.Fprintln(output, "Commands:")
 	fmt.Fprintln(output, "  sync")
 	fmt.Fprintln(output, "  status")
+	fmt.Fprintln(output, "  update")
 }
 
 type commandOptions struct {

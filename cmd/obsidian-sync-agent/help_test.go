@@ -76,8 +76,8 @@ func TestRun_printsDoubleDashHelp_whenCommandHelpRequested(t *testing.T) {
 				"--attachment-max-bytes",
 			},
 		},
-		{
-			name: "status",
+			{
+				name: "status",
 			args: []string{"status", "--help"},
 			wantFlags: []string{
 				"--vault-root",
@@ -85,8 +85,15 @@ func TestRun_printsDoubleDashHelp_whenCommandHelpRequested(t *testing.T) {
 				"--server",
 				"--device-id",
 				"--verbose",
+				},
 			},
-		},
+			{
+				name: "update",
+				args: []string{"update", "--help"},
+				wantFlags: []string{
+					"Check for and install the latest obsisync release.",
+				},
+			},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

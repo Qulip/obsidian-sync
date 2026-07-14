@@ -2,7 +2,8 @@
 
 AGENT_PKG := ./cmd/obsidian-sync-agent
 BUILD_DIR := dist/obsisync
-GO_BUILD_FLAGS := -trimpath -ldflags "-s -w"
+VERSION ?= dev
+GO_BUILD_FLAGS := -trimpath -ldflags "-s -w -X main.version=$(VERSION)"
 
 build-agent:
 	mkdir -p $(BUILD_DIR)

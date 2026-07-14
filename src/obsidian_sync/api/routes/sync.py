@@ -1,8 +1,14 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from obsidian_sync.api.deps import DbSessionDependency, SettingsDependency
+from obsidian_sync.api.deps import (
+    DbSessionDependency,
+    PostSyncIndexerDependency,
+    SettingsDependency,
+)
+from obsidian_sync.core.config import Settings
 from obsidian_sync.core.responses import ResponseEnvelope, ok
 from obsidian_sync.schemas.sync import (
     DeleteFileData,
@@ -16,6 +22,7 @@ from obsidian_sync.schemas.sync import (
     SyncChangesData,
     SyncStatusData,
 )
+from obsidian_sync.services.post_sync_indexing import PostSyncIndexDispatcher
 from obsidian_sync.services.revision_sync import RevisionSyncService
 from obsidian_sync.services.storage import VaultStorage
 
@@ -87,13 +94,18 @@ async def restore_file(
     payload: RestoreFileRequest,
     session: DbSessionDependency,
     settings: SettingsDependency,
+    post_sync_indexer: PostSyncIndexerDependency,
 ) -> ResponseEnvelope[PutFileData]:
     """Restore a soft-deleted file from its stored version history.
 
     Restore is body-based because a literal segment after a `{file_path:path}`
     parameter does not route reliably.
     """
-    service = _service(session=session, settings=settings)
+    service = _write_service(
+        session=session,
+        settings=settings,
+        post_sync_indexer=post_sync_indexer,
+    )
     return ok(await service.restore_file(vault_id, payload))
 
 
@@ -122,6 +134,7 @@ async def put_file(
     payload: PutFileRequest,
     session: DbSessionDependency,
     settings: SettingsDependency,
+    post_sync_indexer: PostSyncIndexerDependency,
 ) -> ResponseEnvelope[PutFileData]:
     """Create or update a markdown file with optimistic revision checking.
 
@@ -129,7 +142,11 @@ async def put_file(
     is allowed). For updates, base_revision must match the server revision or
     a 409 SYNC_CONFLICT is returned and recorded.
     """
-    service = _service(session=session, settings=settings)
+    service = _write_service(
+        session=session,
+        settings=settings,
+        post_sync_indexer=post_sync_indexer,
+    )
     return ok(await service.put_file(vault_id, file_path, payload))
 
 
@@ -156,11 +173,25 @@ async def delete_file(
 
 def _service(
     *,
-    session: DbSessionDependency,
-    settings: SettingsDependency,
+    session: AsyncSession,
+    settings: Settings,
 ) -> RevisionSyncService:
     return RevisionSyncService(
         session,
         VaultStorage(settings.vault_storage_root, settings.vault_archive_root),
         settings,
+    )
+
+
+def _write_service(
+    *,
+    session: AsyncSession,
+    settings: Settings,
+    post_sync_indexer: PostSyncIndexDispatcher | None,
+) -> RevisionSyncService:
+    return RevisionSyncService(
+        session,
+        VaultStorage(settings.vault_storage_root, settings.vault_archive_root),
+        settings,
+        post_sync_indexer=post_sync_indexer,
     )

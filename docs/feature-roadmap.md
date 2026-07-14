@@ -41,13 +41,13 @@
 
 ## 2. 추가 기능 제안 (사용성 임팩트 순)
 
-### 2.1 동기화 후 자동 백그라운드 인덱싱 — 최우선
+### 2.1 동기화 후 자동 백그라운드 인덱싱 (2026-07-14 구현)
 
-**현재**: 노트를 수정하면 `index_status='pending'`으로만 표시되고(`services/revision_sync.py`), 사용자가 `reindex_vault`를 직접 호출해야 검색에 반영된다. 잊으면 새/수정 노트가 무기한 검색에서 빠진다. 검색 JOIN 조건 덕분에 stale 내용이 반환되지는 않는 fail-safe 설계이지만, "방금 저장한 노트가 검색이 안 되는" 경험은 이 구조에서 가장 흔한 불만이 될 수밖에 없다.
+**현재**: 성공한 revision 기반 Markdown PUT/RESTORE 또는 MCP `sync_file` 저장이 벡터화 대상이고 `post_sync_indexing_enabled`가 켜져 있으면 `index_status='pending'`으로 표시한 뒤, 같은 프로세스 안에서 best-effort 인덱싱을 예약한다. 저장 요청 자체는 인덱싱 완료를 기다리지 않으므로 사용자는 "저장하면 곧 검색됨"에 가까운 흐름을 얻고, 검색 JOIN 조건은 여전히 stale 청크 노출을 막는다.
 
-**제안**: sync PUT 처리 후 백그라운드 큐(asyncio task 또는 주기 워커)로 pending 파일을 자동 임베딩한다. "저장하면 곧 검색됨"이라는 사용자 기대와 실제 동작이 일치하게 된다.
+**운영 한계**: 이 예약은 아직 durable queue가 아니라 in-process 작업이다. 프로세스가 재시작되면 실행 중이거나 대기 중이던 작업은 사라질 수 있지만, `vault_files.index_status='pending'` 행은 DB에 남으므로 이후 명시적인 `reindex_vault` 또는 `/reindex` 호출로 복구할 수 있다. 자동 재시도, 멀티 프로세스 내구성, 배치 처리, 동시성 제어가 있다고 보지는 않는다.
 
-**연계**: 결함 분석 §3.2(단일 트랜잭션·순차 임베딩)의 배치 커밋 + 세마포어 동시 임베딩 개선과 묶어서 진행하는 것이 자연스럽다. 백그라운드 워커를 만들면 그 워커가 배치 단위 커밋의 실행 주체가 된다.
+**남은 작업**: full rebuild와 실패 재처리는 기존 수동 `reindex_vault(full|changed_only)`가 계속 담당한다. durable queue가 도입되기 전까지 운영자는 restart 이후 pending/failed 상태를 보고 필요할 때 명시적으로 reindex를 실행해야 한다.
 
 ### 2.2 리비전 히스토리 노출 — 데이터는 이미 있음
 
@@ -127,7 +127,7 @@ list_notes(vault_id, folder=None, tag=None, modified_since=None, limit=...)
 
 | 순서 | 기능 | 상태 / 근거 |
 |---|---|---|
-| 1 | 자동 백그라운드 인덱싱 (§2.1) | 미착수 — 매일 체감, 서비스 핵심 가치(검색)와 직결. **현재 최우선** |
+| 1 | 자동 백그라운드 인덱싱 (§2.1) | 구현됨(2026-07-14). 성공한 Markdown PUT/RESTORE/MCP `sync_file` 후 설정이 켜져 있으면 in-process best-effort 예약. durable queue 전까지 restart 후 pending은 수동 reindex로 복구 |
 | 2 | ~~Go `watch`~~ + `init` (§2.5) | watch 완료(2026-07-14). `init`·진행률 남음 |
 | 3 | 휴지통 목록 + 리비전 히스토리 API (§2.2, §2.3) | 미착수 — GC 구현으로 보존 정책은 갖춰짐. 조회 인터페이스가 남은 반쪽 |
 | 4 | MCP `list_notes` + `append_to_note` (§2.4, §2.6) | 미착수 — 에이전트 활용(주 사용 시나리오) 폭 확장 |

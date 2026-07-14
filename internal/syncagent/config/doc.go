@@ -29,7 +29,29 @@ const (
 	ObsidianKeyEnv        = "OBSIDIAN_LOCAL_REST_API_KEY"
 	SyncAttachmentsEnv    = "OBSIDIAN_SYNC_AGENT_SYNC_ATTACHMENTS"
 	AttachmentMaxBytesEnv = "OBSIDIAN_SYNC_AGENT_ATTACHMENT_MAX_BYTES"
+	ConflictPolicyEnv     = "OBSIDIAN_SYNC_AGENT_CONFLICT_POLICY"
 )
+
+// ConflictPolicy selects how the agent handles a 409 SYNC_CONFLICT: leave it
+// for the user to resolve (ConflictPolicyManual, the default), retry with
+// local content as the winner (ConflictPolicyLocalWins), or adopt the
+// server's content (ConflictPolicyRemoteWins). Mirrors
+// obsidian_sync.sync_agent.config.ConflictPolicy in the Python agent.
+type ConflictPolicy string
+
+const (
+	ConflictPolicyManual     ConflictPolicy = "manual"
+	ConflictPolicyLocalWins  ConflictPolicy = "local-wins"
+	ConflictPolicyRemoteWins ConflictPolicy = "remote-wins"
+
+	DefaultConflictPolicy ConflictPolicy = ConflictPolicyManual
+)
+
+var ConflictPolicies = []ConflictPolicy{
+	ConflictPolicyManual,
+	ConflictPolicyLocalWins,
+	ConflictPolicyRemoteWins,
+}
 
 var errConfig = errors.New("config")
 
@@ -64,6 +86,7 @@ type AgentConfig struct {
 	RequireObsidianRefresh bool
 	SyncAttachments        bool
 	AttachmentMaxBytes     int64
+	ConflictPolicy         ConflictPolicy
 }
 
 type CLIOverrides struct {
@@ -77,6 +100,7 @@ type CLIOverrides struct {
 	HasSyncAttachmentsOverride    bool
 	AttachmentMaxBytes            int64
 	HasAttachmentMaxBytesOverride bool
+	ConflictPolicy                string
 }
 
 type fileConfig struct {
@@ -88,6 +112,7 @@ type fileConfig struct {
 	Obsidian               *fileObsidianConfig `json:"obsidian"`
 	SyncAttachments        *bool               `json:"sync_attachments"`
 	AttachmentMaxBytes     *int64              `json:"attachment_max_bytes"`
+	ConflictPolicy         string              `json:"conflict_policy"`
 }
 
 type fileObsidianConfig struct {
@@ -136,6 +161,10 @@ func Load(overrides CLIOverrides) (AgentConfig, error) {
 	if err != nil {
 		return AgentConfig{}, err
 	}
+	conflictPolicy, err := resolveConflictPolicy(overrides, fileData)
+	if err != nil {
+		return AgentConfig{}, err
+	}
 
 	return AgentConfig{
 		ServerBaseURL:          strings.TrimRight(server, "/"),
@@ -148,6 +177,7 @@ func Load(overrides CLIOverrides) (AgentConfig, error) {
 		RequireObsidianRefresh: requireObsidianRefresh(overrides, fileData),
 		SyncAttachments:        syncAttachments,
 		AttachmentMaxBytes:     attachmentMaxBytes,
+		ConflictPolicy:         conflictPolicy,
 	}, nil
 }
 
@@ -289,6 +319,28 @@ func validateAttachmentMaxBytes(value int64) (int64, error) {
 		return 0, newConfigError("attachment_max_bytes must be greater than zero, got %d", value)
 	}
 	return value, nil
+}
+
+func resolveConflictPolicy(overrides CLIOverrides, data fileConfig) (ConflictPolicy, error) {
+	raw := pickString(overrides.ConflictPolicy, os.Getenv(ConflictPolicyEnv), data.ConflictPolicy)
+	if raw == "" {
+		return DefaultConflictPolicy, nil
+	}
+	policy := ConflictPolicy(raw)
+	for _, valid := range ConflictPolicies {
+		if policy == valid {
+			return policy, nil
+		}
+	}
+	return "", newConfigError("conflict_policy must be one of %s, got %q", conflictPolicyNames(), raw)
+}
+
+func conflictPolicyNames() string {
+	names := make([]string, len(ConflictPolicies))
+	for index, policy := range ConflictPolicies {
+		names[index] = string(policy)
+	}
+	return strings.Join(names, ", ")
 }
 
 func defaultDeviceID() string {

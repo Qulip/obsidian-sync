@@ -691,16 +691,17 @@ obsisync sync \
   --require-obsidian-refresh
 
 # 단일 사용자·다중 기기: 로컬 변경을 항상 우선 (충돌 자동 해결)
-obsidian-sync-agent sync \
+obsisync sync \
   --vault-root ~/ObsidianVault \
   --conflict-policy local-wins
 
 # 서버를 항상 진실의 원천으로 (로컬 변경은 백업 후 폐기)
-obsidian-sync-agent sync \
+obsisync sync \
   --vault-root ~/ObsidianVault \
   --conflict-policy remote-wins
 
-# 재시도 튜닝 (불안정한 네트워크 환경)
+# 재시도 튜닝 (불안정한 네트워크 환경, Python 에이전트 전용 -- Go 에이전트는
+# 아직 재시도 설정을 지원하지 않습니다)
 obsidian-sync-agent sync \
   --vault-root ~/ObsidianVault \
   --max-retries 5 \

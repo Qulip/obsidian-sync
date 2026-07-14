@@ -346,6 +346,115 @@ func TestLoadConfig_rejectsInvalidSyncAttachmentsEnv(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_conflictPolicyDefaultsToManual(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url": "https://file.example",
+		"vault_id":        "file-vault",
+	})
+	clearConfigEnv(t)
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.ConflictPolicy != DefaultConflictPolicy {
+		t.Fatalf("ConflictPolicy = %q, want %q", got.ConflictPolicy, DefaultConflictPolicy)
+	}
+}
+
+func TestLoadConfig_conflictPolicyFromFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url": "https://file.example",
+		"vault_id":        "file-vault",
+		"conflict_policy": "local-wins",
+	})
+	clearConfigEnv(t)
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.ConflictPolicy != ConflictPolicyLocalWins {
+		t.Fatalf("ConflictPolicy = %q, want %q", got.ConflictPolicy, ConflictPolicyLocalWins)
+	}
+}
+
+func TestLoadConfig_conflictPolicyEnvOverridesFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url": "https://file.example",
+		"vault_id":        "file-vault",
+		"conflict_policy": "manual",
+	})
+	clearConfigEnv(t)
+	t.Setenv(ConflictPolicyEnv, "remote-wins")
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.ConflictPolicy != ConflictPolicyRemoteWins {
+		t.Fatalf("ConflictPolicy = %q, want %q", got.ConflictPolicy, ConflictPolicyRemoteWins)
+	}
+}
+
+func TestLoadConfig_conflictPolicyCLIOverridesEnvAndFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url": "https://file.example",
+		"vault_id":        "file-vault",
+		"conflict_policy": "remote-wins",
+	})
+	clearConfigEnv(t)
+	t.Setenv(ConflictPolicyEnv, "local-wins")
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root, ConflictPolicy: "manual"})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.ConflictPolicy != ConflictPolicyManual {
+		t.Fatalf("ConflictPolicy = %q, want %q from CLI override", got.ConflictPolicy, ConflictPolicyManual)
+	}
+}
+
+func TestLoadConfig_rejectsInvalidConflictPolicy(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearConfigEnv(t)
+	t.Setenv(ServerEnv, "https://env.example")
+	t.Setenv(VaultIDEnv, "env-vault")
+	t.Setenv(ConflictPolicyEnv, "not-a-policy")
+
+	// When
+	_, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err == nil {
+		t.Fatal("Load() error = nil")
+	}
+	if !IsConfigError(err) {
+		t.Fatalf("Load() error type = %T", err)
+	}
+}
+
 func TestLoadConfig_rejectsNonPositiveAttachmentMaxBytes(t *testing.T) {
 	// Given
 	root := t.TempDir()
@@ -427,6 +536,7 @@ func clearConfigEnv(t *testing.T) {
 		ObsidianKeyEnv,
 		SyncAttachmentsEnv,
 		AttachmentMaxBytesEnv,
+		ConflictPolicyEnv,
 	} {
 		t.Setenv(name, "")
 	}

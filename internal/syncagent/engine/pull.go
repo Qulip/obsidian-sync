@@ -7,6 +7,7 @@ import (
 
 	"github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/client"
+	"github.com/Qulip/obsidian-sync/internal/syncagent/config"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/conflict"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/manifest"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/rules"
@@ -115,6 +116,26 @@ func (r *syncRun) applyDelete(change pullChange) error {
 		r.summary.LocallyDeleted++
 		return r.saveManifest()
 	}
+	return r.resolvePullDeleteConflict(change, localHash)
+}
+
+// resolvePullDeleteConflict resolves a pull-side delete conflict (server
+// deleted, local diverged) according to cfg.ConflictPolicy, mirroring
+// conflict_resolution.resolve_pull_delete_conflict.
+func (r *syncRun) resolvePullDeleteConflict(change pullChange, localHash string) error {
+	switch r.cfg.ConflictPolicy {
+	case config.ConflictPolicyLocalWins:
+		resolved, err := r.pullDeleteConflictLocalWins(change)
+		if err != nil {
+			return err
+		}
+		if resolved {
+			return nil
+		}
+		r.summary.Warnings = append(r.summary.Warnings, "local-wins could not resolve delete conflict on "+change.item.Path+"; falling back to manual resolution")
+	case config.ConflictPolicyRemoteWins:
+		return r.pullDeleteConflictRemoteWins(change)
+	}
 	if err := r.writeDeleteConflict(change); err != nil {
 		return err
 	}
@@ -125,6 +146,49 @@ func (r *syncRun) applyDelete(change pullChange) error {
 		ServerDeleted:     true,
 	}
 	r.summary.Conflicts = append(r.summary.Conflicts, change.item.Path)
+	return r.saveManifest()
+}
+
+// pullDeleteConflictLocalWins recreates the file on the server from local
+// content, since the server has soft-deleted it (base_revision=0).
+func (r *syncRun) pullDeleteConflictLocalWins(change pullChange) (bool, error) {
+	localContent, err := os.ReadFile(change.destination)
+	if err != nil {
+		return false, fmt.Errorf("read local file %s: %w", change.item.Path, err)
+	}
+	outcome, err := r.resolveLocalWinsUpsert(change.item.Path, localContent, 0)
+	if err != nil || !outcome.resolved {
+		return false, err
+	}
+	r.state.Files[change.item.Path] = manifest.Entry{
+		ServerRevision: outcome.revision,
+		ContentHash:    outcome.contentHash,
+		LastSyncedAt:   r.now().UTC().Format(time.RFC3339),
+	}
+	delete(r.state.Conflicts, change.item.Path)
+	r.summary.Pushed++
+	if err := r.saveManifest(); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+// pullDeleteConflictRemoteWins backs up the local content, then accepts the
+// server's delete.
+func (r *syncRun) pullDeleteConflictRemoteWins(change pullChange) error {
+	localContent, err := os.ReadFile(change.destination)
+	if err != nil {
+		return fmt.Errorf("read local file %s: %w", change.item.Path, err)
+	}
+	if _, err := r.writeLocalBackup(change.item.Path, localContent, change.item.Revision); err != nil {
+		return err
+	}
+	if err := os.Remove(change.destination); err != nil {
+		return fmt.Errorf("delete local file %s: %w", change.item.Path, err)
+	}
+	delete(r.state.Files, change.item.Path)
+	delete(r.state.Conflicts, change.item.Path)
+	r.summary.LocallyDeleted++
 	return r.saveManifest()
 }
 
@@ -196,7 +260,78 @@ func (r *syncRun) applyWrite(change pullChange) error {
 	return r.saveManifest()
 }
 
+// writePullConflict resolves a pull-side write conflict (server + local both
+// changed) according to cfg.ConflictPolicy, mirroring
+// conflict_resolution.resolve_pull_write_conflict.
 func (r *syncRun) writePullConflict(change pullChange, localHash string, serverFile client.FileContentData) error {
+	switch r.cfg.ConflictPolicy {
+	case config.ConflictPolicyLocalWins:
+		resolved, err := r.pullWriteConflictLocalWins(change, serverFile)
+		if err != nil {
+			return err
+		}
+		if resolved {
+			return nil
+		}
+		r.summary.Warnings = append(r.summary.Warnings, "local-wins could not resolve conflict on "+change.item.Path+"; falling back to manual resolution")
+	case config.ConflictPolicyRemoteWins:
+		return r.pullWriteConflictRemoteWins(change, serverFile)
+	}
+	return r.writePullConflictManual(change, localHash, serverFile)
+}
+
+// pullWriteConflictLocalWins retries pushing the local content as the
+// winner, using the server's latest revision as the base.
+func (r *syncRun) pullWriteConflictLocalWins(change pullChange, serverFile client.FileContentData) (bool, error) {
+	localContent, err := os.ReadFile(change.destination)
+	if err != nil {
+		return false, fmt.Errorf("read local file %s: %w", change.item.Path, err)
+	}
+	outcome, err := r.resolveLocalWinsUpsert(change.item.Path, localContent, serverFile.Revision)
+	if err != nil || !outcome.resolved {
+		return false, err
+	}
+	r.state.Files[change.item.Path] = manifest.Entry{
+		ServerRevision: outcome.revision,
+		ContentHash:    outcome.contentHash,
+		LastSyncedAt:   r.now().UTC().Format(time.RFC3339),
+	}
+	delete(r.state.Conflicts, change.item.Path)
+	r.summary.Pushed++
+	if err := r.saveManifest(); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+// pullWriteConflictRemoteWins backs up the local content, then overwrites it
+// with the server's content.
+func (r *syncRun) pullWriteConflictRemoteWins(change pullChange, serverFile client.FileContentData) error {
+	localContent, err := os.ReadFile(change.destination)
+	if err != nil {
+		return fmt.Errorf("read local file %s: %w", change.item.Path, err)
+	}
+	if _, err := r.writeLocalBackup(change.item.Path, localContent, serverFile.Revision); err != nil {
+		return err
+	}
+	contentBytes, err := serverFile.DecodedContent()
+	if err != nil {
+		return fmt.Errorf("decode server file %s: %w", change.item.Path, err)
+	}
+	if err := atomicfile.WriteBytes(change.destination, contentBytes); err != nil {
+		return fmt.Errorf("write local file %s: %w", change.item.Path, err)
+	}
+	r.state.Files[change.item.Path] = manifest.Entry{
+		ServerRevision: serverFile.Revision,
+		ContentHash:    serverFile.ContentHash,
+		LastSyncedAt:   r.now().UTC().Format(time.RFC3339),
+	}
+	delete(r.state.Conflicts, change.item.Path)
+	r.summary.Applied++
+	return r.saveManifest()
+}
+
+func (r *syncRun) writePullConflictManual(change pullChange, localHash string, serverFile client.FileContentData) error {
 	if rules.IsAttachmentPath(change.item.Path) {
 		contentBytes, err := serverFile.DecodedContent()
 		if err != nil {

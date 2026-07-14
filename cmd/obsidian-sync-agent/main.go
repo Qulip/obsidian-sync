@@ -70,6 +70,7 @@ type commandOptions struct {
 	noSyncAttachments         bool
 	attachmentMaxBytes        int64
 	hasAttachmentMaxBytesFlag bool
+	conflictPolicy            string
 	helpRequested             bool
 }
 
@@ -161,6 +162,7 @@ func parseCommand(spec commandSpec, args []string, stdio commandIO) (commandOpti
 		flags.BoolVar(&options.syncAttachments, "sync-attachments", false, "enable attachment (image/PDF) sync")
 		flags.BoolVar(&options.noSyncAttachments, "no-sync-attachments", false, "disable attachment sync even if enabled via config/env")
 		flags.Int64Var(&options.attachmentMaxBytes, "attachment-max-bytes", 0, "local attachment size filter in bytes")
+		flags.StringVar(&options.conflictPolicy, "conflict-policy", "", "conflict resolution policy: manual, local-wins, remote-wins")
 	}
 	for _, arg := range args {
 		if arg == "--help" || arg == "-h" || arg == "-help" {
@@ -211,6 +213,8 @@ func printCommandHelp(output io.Writer, spec commandSpec) {
 		fmt.Fprintln(output, "    \tdisable attachment sync even if enabled via config/env")
 		fmt.Fprintln(output, "  --attachment-max-bytes int")
 		fmt.Fprintln(output, "    \tlocal attachment size filter in bytes")
+		fmt.Fprintln(output, "  --conflict-policy string")
+		fmt.Fprintln(output, "    \tconflict resolution policy: manual, local-wins, remote-wins")
 	}
 }
 
@@ -226,6 +230,7 @@ func (o commandOptions) overrides(requireRefreshSet bool) config.CLIOverrides {
 		HasSyncAttachmentsOverride:    o.syncAttachments || o.noSyncAttachments,
 		AttachmentMaxBytes:            o.attachmentMaxBytes,
 		HasAttachmentMaxBytesOverride: o.hasAttachmentMaxBytesFlag,
+		ConflictPolicy:                o.conflictPolicy,
 	}
 }
 

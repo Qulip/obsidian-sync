@@ -14,6 +14,7 @@ type fakeClient struct {
 	getFileErrors       map[string]error
 	status              client.SyncStatusData
 	putConflict         map[string]map[string]json.RawMessage
+	deleteConflict      map[string]map[string]json.RawMessage
 	registerCalls       int
 	nextRevision        int
 	getChangesCalls     []client.ChangesRequest
@@ -23,6 +24,14 @@ type fakeClient struct {
 	statusDeviceID      string
 	puts                []putCall
 	deletes             []deleteCall
+
+	// putConflictAttempts/deleteConflictAttempts optionally bound how many
+	// times the corresponding *Conflict entry fires before the call starts
+	// succeeding, so tests can exercise a local-wins retry that resolves on
+	// a later attempt. A path absent from these maps (the default) conflicts
+	// on every call, matching the original unconditional behavior.
+	putConflictAttempts    map[string]int
+	deleteConflictAttempts map[string]int
 }
 
 type putCall struct {
@@ -38,10 +47,13 @@ type deleteCall struct {
 
 func newFakeClient() *fakeClient {
 	return &fakeClient{
-		files:         map[string]client.FileContentData{},
-		getFileErrors: map[string]error{},
-		putConflict:   map[string]map[string]json.RawMessage{},
-		nextRevision:  1,
+		files:                  map[string]client.FileContentData{},
+		getFileErrors:          map[string]error{},
+		putConflict:            map[string]map[string]json.RawMessage{},
+		deleteConflict:         map[string]map[string]json.RawMessage{},
+		putConflictAttempts:    map[string]int{},
+		deleteConflictAttempts: map[string]int{},
+		nextRevision:           1,
 		status: client.SyncStatusData{
 			VaultID: "vault",
 		},
@@ -96,7 +108,7 @@ func (f *fakeClient) GetFile(_ context.Context, ref client.FileRef) (client.File
 }
 
 func (f *fakeClient) PutFile(_ context.Context, ref client.FileRef, body client.PutFileRequest) (client.PutFileData, error) {
-	if details, ok := f.putConflict[ref.Path]; ok {
+	if details, ok := f.putConflict[ref.Path]; ok && f.consumeConflictAttempt(f.putConflictAttempts, ref.Path) {
 		return client.PutFileData{}, &client.ConflictError{Message: "conflict", StatusCode: 409, Details: details}
 	}
 	f.puts = append(f.puts, putCall{path: ref.Path, baseRevision: body.BaseRevision, content: body.Content})
@@ -107,9 +119,27 @@ func (f *fakeClient) PutFile(_ context.Context, ref client.FileRef, body client.
 }
 
 func (f *fakeClient) DeleteFile(_ context.Context, ref client.FileRef, body client.DeleteFileRequest) (client.DeleteFileData, error) {
+	if details, ok := f.deleteConflict[ref.Path]; ok && f.consumeConflictAttempt(f.deleteConflictAttempts, ref.Path) {
+		return client.DeleteFileData{}, &client.ConflictError{Message: "conflict", StatusCode: 409, Details: details}
+	}
 	f.deletes = append(f.deletes, deleteCall{path: ref.Path, baseRevision: body.BaseRevision})
 	delete(f.files, ref.Path)
 	revision := f.nextRevision
 	f.nextRevision++
 	return client.DeleteFileData{VaultID: ref.VaultID, Path: ref.Path, Revision: revision, Deleted: true}, nil
+}
+
+// consumeConflictAttempt reports whether a conflict should still fire for
+// path. A path absent from attempts (the default) conflicts unconditionally;
+// a path present with a remaining count > 0 conflicts and decrements it.
+func (f *fakeClient) consumeConflictAttempt(attempts map[string]int, path string) bool {
+	remaining, hasLimit := attempts[path]
+	if !hasLimit {
+		return true
+	}
+	if remaining <= 0 {
+		return false
+	}
+	attempts[path] = remaining - 1
+	return true
 }

@@ -319,6 +319,122 @@ func TestRunSync_pushesAttachment_whenSyncAttachmentsFlagEnabled(t *testing.T) {
 	}
 }
 
+func TestRunSync_conflictPolicyFlagOverridesConfigFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearCommandEnv(t)
+	if err := os.WriteFile(filepath.Join(root, "note.md"), []byte("local edit"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	writeCommandConfigFile(t, root, map[string]any{
+		"conflict_policy": "manual",
+	})
+	server := syncConflictServer(t)
+	defer server.Close()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When: --conflict-policy remote-wins overrides the config file's manual
+	code := run([]string{
+		"sync",
+		"--vault-root", root,
+		"--server", server.URL,
+		"--vault-id", "vault",
+		"--device-id", "dev",
+		"--conflict-policy", "remote-wins",
+	}, &stdout, &stderr)
+
+	// Then
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d, stderr = %q", code, exitOK, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "conflicts=0") {
+		t.Fatalf("stderr = %q, want conflicts=0", stderr.String())
+	}
+	got, err := os.ReadFile(filepath.Join(root, "note.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != "server edit" {
+		t.Fatalf("note.md content = %q, want server content adopted", string(got))
+	}
+	backups, err := filepath.Glob(filepath.Join(root, "note.local-backup.conflict.dev.*.md"))
+	if err != nil {
+		t.Fatalf("Glob() error = %v", err)
+	}
+	if len(backups) != 1 {
+		t.Fatalf("local backup files = %v, want exactly 1", backups)
+	}
+}
+
+func TestRunSync_conflictPolicyLocalWinsFallsBackToManual_afterExhaustingRetries(t *testing.T) {
+	// Given: syncConflictServer always 409s the PUT, so local-wins retries
+	// exhaust and must fall back to writing a manual conflict file.
+	root := t.TempDir()
+	clearCommandEnv(t)
+	if err := os.WriteFile(filepath.Join(root, "note.md"), []byte("local edit"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	server := syncConflictServer(t)
+	defer server.Close()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When
+	code := run([]string{
+		"sync",
+		"--vault-root", root,
+		"--server", server.URL,
+		"--vault-id", "vault",
+		"--device-id", "dev",
+		"--conflict-policy", "local-wins",
+	}, &stdout, &stderr)
+
+	// Then
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1, stderr = %q", code, stderr.String())
+	}
+	conflicts, err := filepath.Glob(filepath.Join(root, "note.conflict.dev.*.md"))
+	if err != nil {
+		t.Fatalf("Glob() error = %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("conflicts = %v", conflicts)
+	}
+	got, err := os.ReadFile(filepath.Join(root, "note.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != "local edit" {
+		t.Fatalf("note.md content = %q, want local content left untouched", string(got))
+	}
+}
+
+func TestRunSync_rejectsInvalidConflictPolicyFlag(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearCommandEnv(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When
+	code := run([]string{
+		"sync",
+		"--vault-root", root,
+		"--server", "http://127.0.0.1:1",
+		"--vault-id", "vault",
+		"--conflict-policy", "not-a-policy",
+	}, &stdout, &stderr)
+
+	// Then
+	if code != exitError {
+		t.Fatalf("exit code = %d, want %d, stderr = %q", code, exitError, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "conflict_policy") {
+		t.Fatalf("stderr = %q, want mention of conflict_policy", stderr.String())
+	}
+}
+
 func writeCommandConfigFile(t *testing.T, root string, data map[string]any) {
 	t.Helper()
 	configDir := filepath.Join(root, ".obsidian-sync-agent")

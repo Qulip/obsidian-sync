@@ -8,7 +8,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/Qulip/obsidian-sync/internal/syncagent/atomicfile"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/client"
+	"github.com/Qulip/obsidian-sync/internal/syncagent/config"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/conflict"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/manifest"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/rules"
@@ -16,10 +18,11 @@ import (
 )
 
 type pushFile struct {
-	path        string
-	base        int
-	localText   string
-	conflictErr *client.ConflictError
+	path         string
+	base         int
+	localContent []byte // raw local bytes; nil when this conflict came from a delete
+	isDelete     bool
+	conflictErr  *client.ConflictError
 }
 
 func (r *syncRun) push(local scanner.LocalChanges, skipPaths map[string]struct{}) error {
@@ -101,7 +104,7 @@ func (r *syncRun) pushUpsert(file pushFile) error {
 	if err != nil {
 		var conflictErr *client.ConflictError
 		if errors.As(err, &conflictErr) {
-			return r.pushConflict(pushFile{path: file.path, localText: string(content), conflictErr: conflictErr})
+			return r.pushConflict(pushFile{path: file.path, localContent: content, conflictErr: conflictErr})
 		}
 		return fmt.Errorf("put file %s: %w", file.path, err)
 	}
@@ -112,7 +115,7 @@ func (r *syncRun) pushUpsert(file pushFile) error {
 	}
 	delete(r.state.Conflicts, file.path)
 	r.summary.Pushed++
-	return nil
+	return r.saveManifest()
 }
 
 func (r *syncRun) pushDelete(path string) error {
@@ -121,7 +124,7 @@ func (r *syncRun) pushDelete(path string) error {
 	if hasConflict && trackedConflict.ServerDeleted {
 		delete(r.state.Files, path)
 		delete(r.state.Conflicts, path)
-		return nil
+		return r.saveManifest()
 	}
 	base := baseRevision(entry, tracked)
 	if hasConflict {
@@ -134,25 +137,51 @@ func (r *syncRun) pushDelete(path string) error {
 	if err != nil {
 		var conflictErr *client.ConflictError
 		if errors.As(err, &conflictErr) {
-			return r.pushConflict(pushFile{path: path, localText: conflict.LocalDeletedPlaceholder, conflictErr: conflictErr})
+			return r.pushConflict(pushFile{path: path, isDelete: true, conflictErr: conflictErr})
 		}
 		return fmt.Errorf("delete file %s: %w", path, err)
 	}
 	delete(r.state.Files, path)
 	delete(r.state.Conflicts, path)
 	r.summary.RemotelyDeleted++
-	return nil
+	return r.saveManifest()
 }
 
+// pushConflict resolves a 409 on our own PUT/DELETE according to
+// cfg.ConflictPolicy, mirroring conflict_resolution.resolve_push_conflict.
+// local-wins and remote-wins apply uniformly to markdown and attachments;
+// only the manual fallback needs to special-case attachments, since binary
+// content can't be embedded in a text conflict report the way markdown can.
 func (r *syncRun) pushConflict(file pushFile) error {
+	switch r.cfg.ConflictPolicy {
+	case config.ConflictPolicyLocalWins:
+		resolved, err := r.pushConflictLocalWins(file)
+		if err != nil {
+			return err
+		}
+		if resolved {
+			return nil
+		}
+		r.summary.Warnings = append(r.summary.Warnings, "local-wins could not resolve push conflict on "+file.path+"; falling back to manual resolution")
+	case config.ConflictPolicyRemoteWins:
+		return r.pushConflictRemoteWins(file)
+	}
 	if rules.IsAttachmentPath(file.path) {
 		return r.pushAttachmentConflict(file.path)
 	}
+	return r.pushManualConflict(file)
+}
+
+func (r *syncRun) pushManualConflict(file pushFile) error {
 	serverRevision := intDetail(file.conflictErr.Details["server_revision"])
 	clientBase := intDetail(file.conflictErr.Details["client_base_revision"])
 	serverContent, err := r.serverContentAfterConflict(file.path)
 	if err != nil {
 		return err
+	}
+	localText := conflict.LocalDeletedPlaceholder
+	if !file.isDelete {
+		localText = string(file.localContent)
 	}
 	if _, err := conflict.WriteFile(conflict.Request{
 		VaultRoot:          r.cfg.VaultRoot,
@@ -160,7 +189,7 @@ func (r *syncRun) pushConflict(file pushFile) error {
 		DeviceID:           r.cfg.DeviceID,
 		ClientBaseRevision: clientBase,
 		ServerRevision:     serverRevision,
-		LocalContent:       file.localText,
+		LocalContent:       localText,
 		ServerContent:      serverContent,
 		Now:                r.now(),
 	}); err != nil {
@@ -168,6 +197,99 @@ func (r *syncRun) pushConflict(file pushFile) error {
 	}
 	r.summary.Conflicts = append(r.summary.Conflicts, file.path)
 	return nil
+}
+
+// pushConflictLocalWins retries pushing local content (or the local delete)
+// as the winner, bounded by localWinsMaxAttempts. Mirrors
+// conflict_resolution._resolve_push_conflict_local_wins.
+func (r *syncRun) pushConflictLocalWins(file pushFile) (bool, error) {
+	serverRevision := intDetail(file.conflictErr.Details["server_revision"])
+	if file.isDelete {
+		resolved, err := r.resolveLocalWinsDelete(file.path, serverRevision)
+		if err != nil || !resolved {
+			return false, err
+		}
+		delete(r.state.Files, file.path)
+		delete(r.state.Conflicts, file.path)
+		r.summary.RemotelyDeleted++
+		if err := r.saveManifest(); err != nil {
+			return true, err
+		}
+		return true, nil
+	}
+	outcome, err := r.resolveLocalWinsUpsert(file.path, file.localContent, serverRevision)
+	if err != nil || !outcome.resolved {
+		return false, err
+	}
+	r.state.Files[file.path] = manifest.Entry{
+		ServerRevision: outcome.revision,
+		ContentHash:    outcome.contentHash,
+		LastSyncedAt:   r.now().UTC().Format(time.RFC3339),
+	}
+	delete(r.state.Conflicts, file.path)
+	r.summary.Pushed++
+	if err := r.saveManifest(); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+// pushConflictRemoteWins adopts the server's state locally, preserving any
+// discarded local content in a backup file first. Mirrors
+// conflict_resolution._resolve_push_conflict_remote_wins, except that a
+// server-file fetch failure only falls back to the "server has nothing"
+// path on a 404; any other error propagates instead of being silently
+// treated as a deletion (matching the existing manual-policy behavior in
+// serverContentAfterConflict).
+func (r *syncRun) pushConflictRemoteWins(file pushFile) error {
+	destination, ok := vaultPath(r.cfg.VaultRoot, file.path, r.cfg.SyncAttachments)
+	if !ok {
+		return fmt.Errorf("%w: unsafe local path %s", ErrSync, file.path)
+	}
+	serverFile, err := r.syncClient.GetFile(r.ctx, client.FileRef{VaultID: r.cfg.VaultID, Path: file.path})
+	if err != nil {
+		var apiErr *client.APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+			return fmt.Errorf("%w: get server file %s after conflict: %w", ErrSync, file.path, err)
+		}
+		// The server has no content for this path either (e.g. it was
+		// deleted concurrently too); adopt that locally.
+		if existsPath(destination) {
+			if !file.isDelete && file.localContent != nil {
+				if _, err := r.writeLocalBackup(file.path, file.localContent, 0); err != nil {
+					return err
+				}
+			}
+			if err := os.Remove(destination); err != nil {
+				return fmt.Errorf("delete local file %s: %w", file.path, err)
+			}
+		}
+		delete(r.state.Files, file.path)
+		delete(r.state.Conflicts, file.path)
+		r.summary.RemotelyDeleted++
+		return r.saveManifest()
+	}
+
+	if !file.isDelete && file.localContent != nil {
+		if _, err := r.writeLocalBackup(file.path, file.localContent, serverFile.Revision); err != nil {
+			return err
+		}
+	}
+	contentBytes, err := serverFile.DecodedContent()
+	if err != nil {
+		return fmt.Errorf("decode server file %s after conflict: %w", file.path, err)
+	}
+	if err := atomicfile.WriteBytes(destination, contentBytes); err != nil {
+		return fmt.Errorf("write local file %s: %w", file.path, err)
+	}
+	r.state.Files[file.path] = manifest.Entry{
+		ServerRevision: serverFile.Revision,
+		ContentHash:    serverFile.ContentHash,
+		LastSyncedAt:   r.now().UTC().Format(time.RFC3339),
+	}
+	delete(r.state.Conflicts, file.path)
+	r.summary.Applied++
+	return r.saveManifest()
 }
 
 // pushAttachmentConflict handles a 409 on an attachment PUT/DELETE. Unlike

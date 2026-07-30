@@ -24,12 +24,13 @@
 
 ## 1. 현재 임베딩 파이프라인
 
-### 1.1 저장 후 reindex 흐름
+### 1.1 저장 후 post-sync 인덱싱 흐름
 
 ```text
 PUT/RESTORE/MCP sync_file 성공
   -> vault_files.index_status = pending
-  -> 명시적 reindex 호출 필요
+  -> post_sync_indexing_enabled=True면 in-process best-effort indexing 예약
+  -> 예약 실패, 프로세스 재시작, 전체 재구축은 명시적 reindex로 복구
   -> ReindexService
      -> parse_frontmatter()
      -> chunk_markdown()
@@ -41,8 +42,9 @@ PUT/RESTORE/MCP sync_file 성공
 
 특징:
 
-- PUT/RESTORE 후 reindex는 자동 실행되지 않는다.
-- MCP save workflow도 `sync_file -> reindex_vault` 2단계다.
+- PUT/RESTORE/MCP `sync_file` 저장은 성공한 벡터화 대상 Markdown이면 기본 설정에서 in-process best-effort 인덱싱을 예약한다.
+- 자동 예약은 durable queue가 아니며, 멀티 프로세스 전달이나 exactly-once 처리를 보장하지 않는다.
+- 수동 reindex는 전체 재구축, 실패 재처리, 프로세스 재시작 뒤 pending 복구, 자동 예약 비활성화 운영에 계속 사용한다.
 - `changed_only`는 `vault_files.index_status != 'indexed'` 파일만 처리한다.
 - `full`은 `.md` 파일 전체를 다시 처리한다.
 - 실패 파일은 `index_status='failed'`가 되고 `index_failure_logs`에 기록된다.
@@ -250,17 +252,17 @@ WHERE vf.deleted = false
 
 MCP 용도라면 정확도 우선이 적합하다.
 
-### P0. Sync 후 reindex 미실행 문제
+### P0. Sync 후 인덱싱 복구 경로
 
-MCP save workflow는 `sync_file -> reindex_vault`이다. `sync_file`만 성공하고 `reindex_vault`를 호출하지 않으면 검색 결과에는 반영되지 않는다.
+MCP `sync_file` 저장은 성공한 벡터화 대상 Markdown이면 기본 설정에서 in-process best-effort 인덱싱을 예약한다. 다만 이 예약은 내구 큐가 아니므로 프로세스 재시작, 자동 예약 실패, `post_sync_indexing_enabled=False` 운영에서는 검색 결과에 바로 반영되지 않을 수 있다.
 
 현재 `get_sync_status`에 `pending_vectorizing_jobs`가 있으므로, MCP client는 검색 전 상태를 확인할 수 있다. 하지만 `search_knowledge` 자체는 pending 상태를 경고하지 않는다.
 
 개선안:
 
 - `search_knowledge` 응답에 `pending_vectorizing_jobs` 또는 `index_freshness`를 포함한다.
-- MCP tool description에 “save 후 반드시 reindex”뿐 아니라 “검색 전 pending jobs가 있으면 결과가 stale할 수 있음”을 명시한다.
-- sync 성공 후 자동 reindex queue를 도입한다.
+- MCP tool description에 “검색 전 pending jobs가 있으면 결과가 stale할 수 있음”과 수동 `changed_only` 복구 경로를 명시한다.
+- durable queue를 도입한다면 재시작 복구와 멀티 프로세스 전달 보장을 별도 설계한다.
 
 ### P1. 순수 vector ranking
 
@@ -469,7 +471,7 @@ embed query
 현재 코드만 기준으로는 MCP 벡터 검색 결과를 최종 사실로 바로 쓰기보다 다음 규칙을 권장한다.
 
 1. `get_sync_status`로 `pending_vectorizing_jobs`를 확인한다.
-2. pending이 있으면 `reindex_vault(mode=changed_only)`를 먼저 실행한다.
+2. pending이 있으면 best-effort post-sync indexing이 끝날 때까지 기다리거나 `reindex_vault(mode=changed_only)`를 실행한다.
 3. `search_knowledge`는 후보 검색으로 사용한다.
 4. top result의 score가 낮거나 질의가 exact keyword 성격이면, 결과를 그대로 신뢰하지 않는다.
 5. 중요한 답변은 `get_note`로 최신 원문을 확인한다.
@@ -485,7 +487,7 @@ embed query
 - 문서 frontmatter가 일관적이다.
 - 사용자가 project/domain/tags 필터를 잘 준다.
 - 검색 결과를 사람이 또는 MCP agent가 다시 확인한다.
-- sync 후 reindex를 빠뜨리지 않는다.
+- sync 후 best-effort post-sync indexing 또는 수동 reindex로 최신 인덱스가 만들어진다.
 
 하지만 다음 수준을 기대하면 개선이 필요하다.
 

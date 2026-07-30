@@ -346,6 +346,273 @@ func TestLoadConfig_rejectsInvalidSyncAttachmentsEnv(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_conflictPolicyDefaultsToManual(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url": "https://file.example",
+		"vault_id":        "file-vault",
+	})
+	clearConfigEnv(t)
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.ConflictPolicy != DefaultConflictPolicy {
+		t.Fatalf("ConflictPolicy = %q, want %q", got.ConflictPolicy, DefaultConflictPolicy)
+	}
+}
+
+func TestLoadConfig_conflictPolicyFromFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url": "https://file.example",
+		"vault_id":        "file-vault",
+		"conflict_policy": "local-wins",
+	})
+	clearConfigEnv(t)
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.ConflictPolicy != ConflictPolicyLocalWins {
+		t.Fatalf("ConflictPolicy = %q, want %q", got.ConflictPolicy, ConflictPolicyLocalWins)
+	}
+}
+
+func TestLoadConfig_conflictPolicyEnvOverridesFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url": "https://file.example",
+		"vault_id":        "file-vault",
+		"conflict_policy": "manual",
+	})
+	clearConfigEnv(t)
+	t.Setenv(ConflictPolicyEnv, "remote-wins")
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.ConflictPolicy != ConflictPolicyRemoteWins {
+		t.Fatalf("ConflictPolicy = %q, want %q", got.ConflictPolicy, ConflictPolicyRemoteWins)
+	}
+}
+
+func TestLoadConfig_conflictPolicyCLIOverridesEnvAndFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url": "https://file.example",
+		"vault_id":        "file-vault",
+		"conflict_policy": "remote-wins",
+	})
+	clearConfigEnv(t)
+	t.Setenv(ConflictPolicyEnv, "local-wins")
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root, ConflictPolicy: "manual"})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.ConflictPolicy != ConflictPolicyManual {
+		t.Fatalf("ConflictPolicy = %q, want %q from CLI override", got.ConflictPolicy, ConflictPolicyManual)
+	}
+}
+
+func TestLoadConfig_rejectsInvalidConflictPolicy(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearConfigEnv(t)
+	t.Setenv(ServerEnv, "https://env.example")
+	t.Setenv(VaultIDEnv, "env-vault")
+	t.Setenv(ConflictPolicyEnv, "not-a-policy")
+
+	// When
+	_, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err == nil {
+		t.Fatal("Load() error = nil")
+	}
+	if !IsConfigError(err) {
+		t.Fatalf("Load() error type = %T", err)
+	}
+}
+
+func TestLoadConfig_watchDefaults(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearConfigEnv(t)
+	t.Setenv(ServerEnv, "https://env.example")
+	t.Setenv(VaultIDEnv, "env-vault")
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.WatchDebounceSeconds != DefaultWatchDebounceSeconds {
+		t.Fatalf("WatchDebounceSeconds = %v, want %v", got.WatchDebounceSeconds, DefaultWatchDebounceSeconds)
+	}
+	if got.WatchIntervalSeconds != DefaultWatchIntervalSeconds {
+		t.Fatalf("WatchIntervalSeconds = %v, want %v", got.WatchIntervalSeconds, DefaultWatchIntervalSeconds)
+	}
+}
+
+func TestLoadConfig_watchSettingsFromFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url":        "https://file.example",
+		"vault_id":               "file-vault",
+		"watch_debounce_seconds": 1.5,
+		"watch_interval_seconds": 60.0,
+	})
+	clearConfigEnv(t)
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.WatchDebounceSeconds != 1.5 {
+		t.Fatalf("WatchDebounceSeconds = %v, want 1.5", got.WatchDebounceSeconds)
+	}
+	if got.WatchIntervalSeconds != 60.0 {
+		t.Fatalf("WatchIntervalSeconds = %v, want 60", got.WatchIntervalSeconds)
+	}
+}
+
+func TestLoadConfig_watchSettingsEnvOverridesFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url":        "https://file.example",
+		"vault_id":               "file-vault",
+		"watch_debounce_seconds": 1.5,
+	})
+	clearConfigEnv(t)
+	t.Setenv(WatchDebounceSecondsEnv, "3.0")
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.WatchDebounceSeconds != 3.0 {
+		t.Fatalf("WatchDebounceSeconds = %v, want 3.0", got.WatchDebounceSeconds)
+	}
+}
+
+func TestLoadConfig_watchSettingsCLIOverridesEnvAndFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	writeConfigFile(t, root, map[string]any{
+		"server_base_url":        "https://file.example",
+		"vault_id":               "file-vault",
+		"watch_debounce_seconds": 1.5,
+	})
+	clearConfigEnv(t)
+	t.Setenv(WatchDebounceSecondsEnv, "3.0")
+
+	// When
+	got, err := Load(CLIOverrides{
+		VaultRoot:                       root,
+		WatchDebounceSeconds:            5.0,
+		HasWatchDebounceSecondsOverride: true,
+	})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.WatchDebounceSeconds != 5.0 {
+		t.Fatalf("WatchDebounceSeconds = %v, want 5.0 from CLI override", got.WatchDebounceSeconds)
+	}
+}
+
+func TestLoadConfig_rejectsNonPositiveWatchDebounceSeconds(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearConfigEnv(t)
+	t.Setenv(ServerEnv, "https://env.example")
+	t.Setenv(VaultIDEnv, "env-vault")
+	t.Setenv(WatchDebounceSecondsEnv, "0")
+
+	// When
+	_, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err == nil {
+		t.Fatal("Load() error = nil")
+	}
+	if !IsConfigError(err) {
+		t.Fatalf("Load() error type = %T", err)
+	}
+}
+
+func TestLoadConfig_rejectsNegativeWatchIntervalSeconds(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearConfigEnv(t)
+	t.Setenv(ServerEnv, "https://env.example")
+	t.Setenv(VaultIDEnv, "env-vault")
+	t.Setenv(WatchIntervalSecondsEnv, "-1")
+
+	// When
+	_, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err == nil {
+		t.Fatal("Load() error = nil")
+	}
+	if !IsConfigError(err) {
+		t.Fatalf("Load() error type = %T", err)
+	}
+}
+
+func TestLoadConfig_allowsZeroWatchIntervalSeconds(t *testing.T) {
+	// Given: 0 means "disabled", the default, and must not error.
+	root := t.TempDir()
+	clearConfigEnv(t)
+	t.Setenv(ServerEnv, "https://env.example")
+	t.Setenv(VaultIDEnv, "env-vault")
+	t.Setenv(WatchIntervalSecondsEnv, "0")
+
+	// When
+	got, err := Load(CLIOverrides{VaultRoot: root})
+
+	// Then
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.WatchIntervalSeconds != 0 {
+		t.Fatalf("WatchIntervalSeconds = %v, want 0", got.WatchIntervalSeconds)
+	}
+}
+
 func TestLoadConfig_rejectsNonPositiveAttachmentMaxBytes(t *testing.T) {
 	// Given
 	root := t.TempDir()
@@ -427,6 +694,9 @@ func clearConfigEnv(t *testing.T) {
 		ObsidianKeyEnv,
 		SyncAttachmentsEnv,
 		AttachmentMaxBytesEnv,
+		ConflictPolicyEnv,
+		WatchDebounceSecondsEnv,
+		WatchIntervalSecondsEnv,
 	} {
 		t.Setenv(name, "")
 	}

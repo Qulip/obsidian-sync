@@ -19,7 +19,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Build agent binaries
-        run: make build-agent-all
+        run: make build-agent-all VERSION="${GITHUB_REF_NAME}"
 
       - name: Package skills
         run: |

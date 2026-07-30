@@ -39,6 +39,12 @@ func testConfigWithAttachments(root string) config.AgentConfig {
 	return cfg
 }
 
+func testConfigWithPolicy(root string, policy config.ConflictPolicy) config.AgentConfig {
+	cfg := testConfig(root)
+	cfg.ConflictPolicy = policy
+	return cfg
+}
+
 type changeSpec struct {
 	revision    int
 	path        string

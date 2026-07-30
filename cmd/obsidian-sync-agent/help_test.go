@@ -74,6 +74,7 @@ func TestRun_printsDoubleDashHelp_whenCommandHelpRequested(t *testing.T) {
 				"--sync-attachments",
 				"--no-sync-attachments",
 				"--attachment-max-bytes",
+				"--conflict-policy",
 			},
 		},
 		{
@@ -85,6 +86,31 @@ func TestRun_printsDoubleDashHelp_whenCommandHelpRequested(t *testing.T) {
 				"--server",
 				"--device-id",
 				"--verbose",
+			},
+		},
+		{
+			name: "watch",
+			args: []string{"watch", "--help"},
+			wantFlags: []string{
+				"--vault-root",
+				"--vault-id",
+				"--server",
+				"--device-id",
+				"--verbose",
+				"--require-obsidian-refresh",
+				"--sync-attachments",
+				"--no-sync-attachments",
+				"--attachment-max-bytes",
+				"--conflict-policy",
+				"--watch-debounce-seconds",
+				"--watch-interval-seconds",
+			},
+		},
+		{
+			name: "update",
+			args: []string{"update", "--help"},
+			wantFlags: []string{
+				"Check for and install the latest obsisync release.",
 			},
 		},
 	}

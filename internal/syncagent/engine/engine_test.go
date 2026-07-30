@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -57,6 +58,44 @@ func TestRunSyncPullWriteDeleteAndCursor(t *testing.T) {
 	if fake.secondPullDeviceID != "dev" {
 		t.Fatalf("second pull device id = %q", fake.secondPullDeviceID)
 	}
+}
+
+func TestRunSyncPersistsPullApplyBeforeLaterPullFailure(t *testing.T) {
+	// Given
+	vault := newVaultFixture(t)
+	saveManifest(t, vault.root, manifest.Manifest{
+		VaultID:        "vault",
+		DeviceID:       "dev",
+		LastSyncCursor: 0,
+		Files:          map[string]manifest.Entry{},
+		Conflicts:      map[string]manifest.Conflict{},
+	})
+	fake := newFakeClient()
+	fake.files["new.md"] = fileData(2, "new.md", "new")
+	fake.changes = []client.SyncChangeItem{
+		syncChange(changeSpec{revision: 2, path: "new.md", eventType: "CREATE", contentHash: testHashPtr("new")}),
+	}
+	fake.getChangesErrOnCall = 2
+	fake.getChangesErr = errors.New("interrupted after apply")
+
+	// When
+	_, err := RunSync(context.Background(), testConfig(vault.root), Options{
+		Client: fake,
+		Now:    fixedNow,
+	})
+
+	// Then
+	if err == nil {
+		t.Fatal("RunSync() error = nil, want forced interruption")
+	}
+	state := loadManifest(t, vault.root)
+	if state.Files["new.md"].ServerRevision != 2 {
+		t.Fatalf("new.md revision = %d, want 2", state.Files["new.md"].ServerRevision)
+	}
+	if state.LastSyncCursor != 0 {
+		t.Fatalf("LastSyncCursor = %d, want 0 before pull page completion", state.LastSyncCursor)
+	}
+	vault.requireFileContent("new.md", "new")
 }
 
 func TestRunSyncPullsBase64Attachment(t *testing.T) {
@@ -132,6 +171,45 @@ func TestRunSyncCreateUpdateDelete(t *testing.T) {
 	if _, ok := loadManifest(t, vault.root).Files["removed.md"]; ok {
 		t.Fatal("removed.md still tracked")
 	}
+}
+
+func TestRunSyncPersistsPushAndDeleteBeforeFinalPullFailure(t *testing.T) {
+	// Given
+	vault := newVaultFixture(t)
+	vault.writeNote("new.md", "new")
+	saveManifest(t, vault.root, manifest.Manifest{
+		VaultID:        "vault",
+		DeviceID:       "dev",
+		LastSyncCursor: 7,
+		Files: map[string]manifest.Entry{
+			"removed.md": {ServerRevision: 8, ContentHash: testHashText("removed"), LastSyncedAt: fixedNowString},
+		},
+		Conflicts: map[string]manifest.Conflict{},
+	})
+	fake := newFakeClient()
+	fake.nextRevision = 10
+	fake.getChangesErrOnCall = 2
+	fake.getChangesErr = errors.New("interrupted after push")
+
+	// When
+	_, err := RunSync(context.Background(), testConfig(vault.root), Options{
+		Client: fake,
+		Now:    fixedNow,
+	})
+
+	// Then
+	if err == nil {
+		t.Fatal("RunSync() error = nil, want forced interruption")
+	}
+	state := loadManifest(t, vault.root)
+	if state.Files["new.md"].ServerRevision != 10 {
+		t.Fatalf("new.md revision = %d, want 10", state.Files["new.md"].ServerRevision)
+	}
+	if _, ok := state.Files["removed.md"]; ok {
+		t.Fatal("removed.md still tracked after successful delete")
+	}
+	fake.requirePut(t, putCall{path: "new.md", content: "new"})
+	fake.requireDelete(t, deleteCall{path: "removed.md", baseRevision: 8})
 }
 
 func TestRunSyncConflictDoesNotAutoMerge(t *testing.T) {

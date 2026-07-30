@@ -22,6 +22,11 @@ from obsidian_sync.core.responses import error_response
 from obsidian_sync.db.session import build_async_engine, build_sessionmaker
 from obsidian_sync.domain.files import PDF_MAX_BYTES, base64_encoded_size
 from obsidian_sync.mcp_server import create_mcp_app, create_mcp_server
+from obsidian_sync.services.post_sync_indexing import (
+    AsyncPostSyncIndexWorker,
+    NoopPostSyncIndexDispatcher,
+    PostSyncIndexDispatcher,
+)
 
 # Allow the JSON envelope (base64/escaping, device_id, hashes) around the raw
 # content bytes to exceed the content limit without a false rejection.
@@ -44,10 +49,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.settings = resolved_settings
         engine: AsyncEngine | None = None
+        post_sync_index_worker: AsyncPostSyncIndexWorker | None = None
+        post_sync_index_dispatcher: PostSyncIndexDispatcher = (
+            NoopPostSyncIndexDispatcher()
+        )
         app.state.sessionmaker = None
         if resolved_settings.database_url:
             engine = build_async_engine(resolved_settings.database_url)
             app.state.sessionmaker = build_sessionmaker(engine)
+        if (
+            resolved_settings.post_sync_indexing_enabled
+            and app.state.sessionmaker is not None
+        ):
+            worker = AsyncPostSyncIndexWorker(
+                settings=resolved_settings,
+            )
+            worker.start(app.state.sessionmaker)
+            post_sync_index_worker = worker
+            post_sync_index_dispatcher = worker
+        app.state.post_sync_index_dispatcher = post_sync_index_dispatcher
         try:
             if mcp_server is None:
                 yield
@@ -55,6 +75,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 async with mcp_server.session_manager.run():
                     yield
         finally:
+            if post_sync_index_worker is not None:
+                await post_sync_index_worker.stop()
             if engine is not None:
                 await engine.dispose()
 

@@ -35,6 +35,10 @@ from obsidian_sync.schemas.sync import (
     SyncChangesData,
     SyncStatusData,
 )
+from obsidian_sync.services.post_sync_indexing import (
+    NoopPostSyncIndexDispatcher,
+    PostSyncIndexDispatcher,
+)
 from obsidian_sync.services.storage import StagedReplace, VaultStorage
 
 SyncEventType = Literal['CREATE', 'UPDATE', 'DELETE', 'RESTORE']
@@ -48,11 +52,15 @@ class RevisionSyncService:
         session: AsyncSession,
         storage: VaultStorage,
         settings: Settings,
+        post_sync_indexer: PostSyncIndexDispatcher | None = None,
     ) -> None:
         self._session = session
         self._repo = SyncRepository(session)
         self._storage = storage
         self._settings = settings
+        self._post_sync_index_dispatcher = (
+            post_sync_indexer or NoopPostSyncIndexDispatcher()
+        )
 
     async def register_device(
         self,
@@ -352,6 +360,11 @@ class RevisionSyncService:
             content_bytes,
         )
         await self._commit_staged_file(staged, source_path)
+        if vectorizable:
+            self._post_sync_index_dispatcher.enqueue_file(
+                vault_id=vault.vault_id,
+                source_path=source_path,
+            )
         return PutFileData(
             vault_id=vault.vault_id,
             path=source_path,
@@ -487,6 +500,11 @@ class RevisionSyncService:
             content_bytes,
         )
         await self._commit_staged_file(staged, source_path)
+        if vectorizable:
+            self._post_sync_index_dispatcher.enqueue_file(
+                vault_id=vault.vault_id,
+                source_path=source_path,
+            )
         return PutFileData(
             vault_id=vault.vault_id,
             path=source_path,

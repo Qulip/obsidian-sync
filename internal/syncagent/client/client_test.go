@@ -243,6 +243,174 @@ func TestClientGetFile_encodesEachPathSegmentAndParsesEnvelope(t *testing.T) {
 	}
 }
 
+func TestClientGetChanges_retriesTransientStatusAndHonorsRetryAfter(t *testing.T) {
+	// Given
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts == 1 {
+			w.Header().Set("Retry-After", "0")
+			writeJSON(t, w, http.StatusServiceUnavailable, `{
+				"success": false,
+				"error": {"code": "UNAVAILABLE", "message": "try again"}
+			}`)
+			return
+		}
+		writeJSON(t, w, http.StatusOK, `{
+			"success": true,
+			"data": {"vault_id": "vault", "from_cursor": 1, "to_cursor": 2, "changes": []}
+		}`)
+	}))
+	defer server.Close()
+	c := newTestClient(t, server.URL, "")
+
+	// When
+	got, err := c.GetChanges(context.Background(), "vault", ChangesRequest{Since: 1})
+
+	// Then
+	if err != nil {
+		t.Fatalf("GetChanges returned error: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if got.FromCursor != 1 || got.ToCursor != 2 {
+		t.Fatalf("changes = %#v", got)
+	}
+}
+
+func TestClientRegisterDevice_retriesWithReusableBody(t *testing.T) {
+	// Given
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		var body RegisterDeviceRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request attempt %d: %v", attempts, err)
+		}
+		if body.DeviceID != "dev1" {
+			t.Fatalf("attempt %d body = %#v", attempts, body)
+		}
+		if attempts == 1 {
+			writeJSON(t, w, http.StatusTooManyRequests, `{
+				"success": false,
+				"error": {"code": "RATE_LIMITED", "message": "slow down"}
+			}`)
+			return
+		}
+		writeJSON(t, w, http.StatusOK, `{
+			"success": true,
+			"data": {"vault_id": "vault", "device_id": "dev1", "registered": true}
+		}`)
+	}))
+	defer server.Close()
+	c := newTestClient(t, server.URL, "")
+
+	// When
+	got, err := c.RegisterDevice(context.Background(), "vault", RegisterDeviceRequest{DeviceID: "dev1"})
+
+	// Then
+	if err != nil {
+		t.Fatalf("RegisterDevice returned error: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if got.DeviceID != "dev1" || !got.Registered {
+		t.Fatalf("registration = %#v", got)
+	}
+}
+
+func TestClientPutFile_doesNotRetryConflict(t *testing.T) {
+	// Given
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts == 1 {
+			writeJSON(t, w, http.StatusConflict, `{
+				"success": false,
+				"error": {"code": "SYNC_CONFLICT", "message": "revision conflict"}
+			}`)
+			return
+		}
+		writeJSON(t, w, http.StatusOK, `{
+			"success": true,
+			"data": {"vault_id": "vault", "path": "a.md", "revision": 3, "content_hash": "hash"}
+		}`)
+	}))
+	defer server.Close()
+	c := newTestClient(t, server.URL, "")
+
+	// When
+	_, err := c.PutFile(context.Background(), FileRef{VaultID: "vault", Path: "a.md"}, PutFileRequest{
+		DeviceID:     "dev1",
+		BaseRevision: 1,
+		ContentHash:  "hash",
+		Content:      "body",
+	})
+
+	// Then
+	if err == nil {
+		t.Fatal("PutFile returned nil error, want conflict")
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
+	}
+}
+
+func TestClientDeleteFile_doesNotRetryRetryableStatus(t *testing.T) {
+	// Given
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		writeJSON(t, w, http.StatusServiceUnavailable, `{
+			"success": false,
+			"error": {"code": "UNAVAILABLE", "message": "write status unknown"}
+		}`)
+	}))
+	defer server.Close()
+	c := newTestClient(t, server.URL, "")
+
+	// When
+	_, err := c.DeleteFile(context.Background(), FileRef{VaultID: "vault", Path: "a.md"}, DeleteFileRequest{
+		DeviceID:     "dev1",
+		BaseRevision: 1,
+	})
+
+	// Then
+	if err == nil {
+		t.Fatal("DeleteFile returned nil error, want unavailable error")
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
+	}
+}
+
+func TestClientGetStatus_stopsAfterExhaustingRetries(t *testing.T) {
+	// Given
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		writeJSON(t, w, http.StatusInternalServerError, `{
+			"success": false,
+			"error": {"code": "SERVER_ERROR", "message": "still down"}
+		}`)
+	}))
+	defer server.Close()
+	c := newTestClient(t, server.URL, "")
+
+	// When
+	_, err := c.GetStatus(context.Background(), "vault", StatusRequest{})
+
+	// Then
+	if err == nil {
+		t.Fatal("GetStatus returned nil error, want exhausted retry error")
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d, want 3", attempts)
+	}
+}
+
 func newTestClient(t *testing.T, baseURL string, token string) *Client {
 	t.Helper()
 	c, err := New(baseURL, token, time.Second)

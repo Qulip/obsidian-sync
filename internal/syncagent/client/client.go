@@ -15,6 +15,11 @@ import (
 
 const DefaultTimeout = 30 * time.Second
 
+const (
+	maxRequestAttempts = 3
+	retryDelay         = 100 * time.Millisecond
+)
+
 type Client struct {
 	baseURL string
 	token   string
@@ -173,12 +178,93 @@ func do[T any](c *Client, req *http.Request) (T, error) {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	var zero T
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return zero, fmt.Errorf("send sync request: %w", err)
+	for attempt := 1; attempt <= maxRequestAttempts; attempt++ {
+		attemptReq, err := requestForAttempt(req)
+		if err != nil {
+			return zero, err
+		}
+		resp, err := c.http.Do(attemptReq)
+		if err != nil {
+			if shouldRetryRequest(req) && attempt < maxRequestAttempts {
+				if err := waitForRetry(req.Context(), 0); err != nil {
+					return zero, err
+				}
+				continue
+			}
+			return zero, fmt.Errorf("send sync request: %w", err)
+		}
+		if shouldRetryResponse(req, resp) && attempt < maxRequestAttempts {
+			delay := retryAfter(resp.Header.Get("Retry-After"))
+			closeBody(resp.Body)
+			if err := waitForRetry(req.Context(), delay); err != nil {
+				return zero, err
+			}
+			continue
+		}
+		defer closeBody(resp.Body)
+		return parseEnvelope[T](resp)
 	}
-	defer closeBody(resp.Body)
-	return parseEnvelope[T](resp)
+	return zero, fmt.Errorf("send sync request: %w", ErrAPI)
+}
+
+func requestForAttempt(req *http.Request) (*http.Request, error) {
+	attemptReq := req.Clone(req.Context())
+	if req.Body == nil || req.Body == http.NoBody {
+		return attemptReq, nil
+	}
+	if req.GetBody == nil {
+		return nil, fmt.Errorf("build sync request retry body: %w", ErrAPI)
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return nil, fmt.Errorf("build sync request retry body: %w", err)
+	}
+	attemptReq.Body = body
+	attemptReq.GetBody = req.GetBody
+	attemptReq.ContentLength = req.ContentLength
+	return attemptReq, nil
+}
+
+func shouldRetryResponse(req *http.Request, resp *http.Response) bool {
+	return shouldRetryRequest(req) && isRetryableStatus(resp.StatusCode)
+}
+
+func shouldRetryRequest(req *http.Request) bool {
+	if req.Method == http.MethodGet {
+		return true
+	}
+	return req.Method == http.MethodPost && strings.HasSuffix(req.URL.EscapedPath(), "/sync/devices")
+}
+
+func isRetryableStatus(statusCode int) bool {
+	return statusCode == http.StatusRequestTimeout ||
+		statusCode == http.StatusTooManyRequests ||
+		statusCode >= http.StatusInternalServerError
+}
+
+func retryAfter(value string) time.Duration {
+	if value == "" {
+		return retryDelay
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds < 0 {
+		return retryDelay
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("send sync request: %w", ctx.Err())
+	}
 }
 
 func closeBody(body io.ReadCloser) {

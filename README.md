@@ -44,8 +44,11 @@ FastAPI obsidian-sync
 1. `obsisync`가 로컬 변경분을 `base_revision` 기반으로
    `PUT /vaults/{vault_id}/files/{path}`에 올립니다 (또는 Agent가 MCP `sync_file`로
    노트 한 건을 저장합니다).
-2. `changed_only` reindex로 Markdown을 chunking하고 embedding을 저장합니다.
-3. `/knowledge/search` 또는 MCP tool로 검색합니다.
+2. 성공한 revision-backed Markdown 저장/복구가 벡터화 대상이고
+   `post_sync_indexing_enabled`가 켜져 있으면 서버가 in-process best-effort
+   인덱싱을 예약합니다.
+3. `/knowledge/search` 또는 MCP tool로 검색합니다. 전체 재구축이나 실패 재처리는
+   `changed_only` 또는 `full` reindex를 명시적으로 호출합니다.
 
 ## Requirements
 
@@ -76,6 +79,7 @@ ollama pull bge-m3
 | `OBSIDIAN_SYNC_EMBEDDING_DIMENSION` | no | `1024` | Vector dimension |
 | `OBSIDIAN_SYNC_VAULT_STORAGE_ROOT` | no | `vaults` | Stored vault root |
 | `OBSIDIAN_SYNC_VAULT_ARCHIVE_ROOT` | no | `archives` | Archive root |
+| `OBSIDIAN_SYNC_POST_SYNC_INDEXING_ENABLED` | no | `true` | 성공한 벡터화 대상 Markdown 저장/복구 뒤 같은 프로세스에서 best-effort 인덱싱 예약 |
 
 Example:
 
@@ -346,6 +350,14 @@ obsisync sync --vault-root "$HOME/ObsidianVault" --dry-run
 obsisync status --vault-root "$HOME/ObsidianVault"
 ```
 
+설치된 CLI를 최신 GitHub Release로 갱신하려면:
+
+```bash
+obsisync update
+```
+
+업데이트 가능 여부를 확인한 뒤 설치 확인을 받습니다.
+
 주기 실행은 cron/launchd/systemd timer로 위 `sync` 명령을 반복 호출하면 됩니다.
 
 Exit codes:
@@ -405,6 +417,14 @@ warning이며 sync 성공에 영향을 주지 않습니다. 자세한 내용은
 
 ## Indexing
 
+기본 설정에서는 성공한 revision-backed Markdown PUT/RESTORE 또는 MCP `sync_file`
+저장이 벡터화 대상 파일을 `pending`으로 표시한 뒤, 같은 서버 프로세스 안에서
+best-effort 인덱싱을 예약합니다. 이 동작은
+`post_sync_indexing_enabled=True`일 때만 켜집니다. 작업은 요청 응답을 막지 않으며,
+durable queue가 아니므로 프로세스 재시작 시 대기 중이던 작업은 사라질 수 있습니다.
+멀티 프로세스 전달이나 exactly-once 처리를 보장하지 않습니다. 이 경우에도 pending
+행은 DB에 남아 있으므로 아래 수동 reindex로 다시 처리할 수 있습니다.
+
 Reindex changed files:
 
 ```bash
@@ -433,7 +453,9 @@ curl -sS -X POST http://localhost:8000/vaults/personal-main/reindex/file \
 ```
 
 Indexing reads Markdown frontmatter, splits content into chunks, creates embeddings
-with Ollama, and stores rows in `knowledge_chunks`.
+with Ollama, and stores rows in `knowledge_chunks`. Durable queue가 생기기 전까지
+수동 reindex는 전체 재구축, 실패 후 명시적 재시도, 프로세스 재시작 뒤 복구,
+또는 `post_sync_indexing_enabled=False` 운영 시 계속 사용하는 경로입니다.
 
 ## Search
 
@@ -543,7 +565,8 @@ Recommended Agent workflow:
 2. `search_knowledge`
 3. Use `source_path`, `heading_path`, `content`, and `agent_hint`
 4. Save new notes with `sync_file`
-5. Run `reindex_vault` with `mode=changed_only`
+5. Search again after the best-effort post-sync indexing finishes. If the process
+   restarted or indexing failed, run `reindex_vault` with `mode=changed_only`.
 
 ## Markdown Frontmatter
 
@@ -724,8 +747,8 @@ Manual smoke flow:
 5. Create a temporary vault.
 6. Upload a Markdown note through `PUT /vaults/{vault_id}/files/{path}` with `base_revision=0`.
 7. Upload another note through `/mcp/vaults/{vault_id}/sync/file`.
-8. Run `/vaults/{vault_id}/reindex` with `changed_only`.
-9. Search with `/knowledge/search`.
+8. Search with `/knowledge/search` after best-effort post-sync indexing has had time to run.
+9. If the note is still pending, run `/vaults/{vault_id}/reindex` with `changed_only` and search again.
 10. Use an MCP client against `/mcp` and call `list_vaults`.
 11. Revoke the temporary API token.
 

@@ -124,7 +124,7 @@ def app_client(clean_db: None) -> Iterator[Any]:
     from obsidian_sync.core.config import get_settings
 
     get_settings.cache_clear()
-    settings = get_settings()
+    settings = get_settings().model_copy(update={'post_sync_indexing_enabled': False})
     app = create_app(settings)
     app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as client:

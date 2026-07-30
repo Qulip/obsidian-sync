@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -242,7 +243,7 @@ func TestParseCommand_setsAttachmentMaxBytesOverride_onlyWhenFlagPassed(t *testi
 	var stdout, stderr bytes.Buffer
 
 	// When flag is passed
-	options, ok := parseCommand(commandSpec{name: "sync", includeSyncFlags: true}, []string{"--attachment-max-bytes", "42"}, commandIO{stdout: &stdout, stderr: &stderr})
+	options, ok := parseCommand(commandSpec{name: "sync", includeSyncFlags: true, includeWriteFlags: true}, []string{"--attachment-max-bytes", "42"}, commandIO{stdout: &stdout, stderr: &stderr})
 
 	// Then
 	if !ok {
@@ -254,7 +255,7 @@ func TestParseCommand_setsAttachmentMaxBytesOverride_onlyWhenFlagPassed(t *testi
 	}
 
 	// When flag is omitted
-	options, ok = parseCommand(commandSpec{name: "sync", includeSyncFlags: true}, []string{}, commandIO{stdout: &stdout, stderr: &stderr})
+	options, ok = parseCommand(commandSpec{name: "sync", includeSyncFlags: true, includeWriteFlags: true}, []string{}, commandIO{stdout: &stdout, stderr: &stderr})
 
 	// Then
 	if !ok {
@@ -316,6 +317,233 @@ func TestRunSync_pushesAttachment_whenSyncAttachmentsFlagEnabled(t *testing.T) {
 	wantContent := base64.StdEncoding.EncodeToString([]byte("binary-bytes"))
 	if gotContent != wantContent {
 		t.Fatalf("PUT content = %q, want %q", gotContent, wantContent)
+	}
+}
+
+func TestRunSync_conflictPolicyFlagOverridesConfigFile(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearCommandEnv(t)
+	if err := os.WriteFile(filepath.Join(root, "note.md"), []byte("local edit"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	writeCommandConfigFile(t, root, map[string]any{
+		"conflict_policy": "manual",
+	})
+	server := syncConflictServer(t)
+	defer server.Close()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When: --conflict-policy remote-wins overrides the config file's manual
+	code := run([]string{
+		"sync",
+		"--vault-root", root,
+		"--server", server.URL,
+		"--vault-id", "vault",
+		"--device-id", "dev",
+		"--conflict-policy", "remote-wins",
+	}, &stdout, &stderr)
+
+	// Then
+	if code != exitOK {
+		t.Fatalf("exit code = %d, want %d, stderr = %q", code, exitOK, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "conflicts=0") {
+		t.Fatalf("stderr = %q, want conflicts=0", stderr.String())
+	}
+	got, err := os.ReadFile(filepath.Join(root, "note.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != "server edit" {
+		t.Fatalf("note.md content = %q, want server content adopted", string(got))
+	}
+	backups, err := filepath.Glob(filepath.Join(root, "note.local-backup.conflict.dev.*.md"))
+	if err != nil {
+		t.Fatalf("Glob() error = %v", err)
+	}
+	if len(backups) != 1 {
+		t.Fatalf("local backup files = %v, want exactly 1", backups)
+	}
+}
+
+func TestRunSync_conflictPolicyLocalWinsFallsBackToManual_afterExhaustingRetries(t *testing.T) {
+	// Given: syncConflictServer always 409s the PUT, so local-wins retries
+	// exhaust and must fall back to writing a manual conflict file.
+	root := t.TempDir()
+	clearCommandEnv(t)
+	if err := os.WriteFile(filepath.Join(root, "note.md"), []byte("local edit"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	server := syncConflictServer(t)
+	defer server.Close()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When
+	code := run([]string{
+		"sync",
+		"--vault-root", root,
+		"--server", server.URL,
+		"--vault-id", "vault",
+		"--device-id", "dev",
+		"--conflict-policy", "local-wins",
+	}, &stdout, &stderr)
+
+	// Then
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1, stderr = %q", code, stderr.String())
+	}
+	conflicts, err := filepath.Glob(filepath.Join(root, "note.conflict.dev.*.md"))
+	if err != nil {
+		t.Fatalf("Glob() error = %v", err)
+	}
+	if len(conflicts) != 1 {
+		t.Fatalf("conflicts = %v", conflicts)
+	}
+	got, err := os.ReadFile(filepath.Join(root, "note.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != "local edit" {
+		t.Fatalf("note.md content = %q, want local content left untouched", string(got))
+	}
+}
+
+func TestRunSync_rejectsInvalidConflictPolicyFlag(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearCommandEnv(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When
+	code := run([]string{
+		"sync",
+		"--vault-root", root,
+		"--server", "http://127.0.0.1:1",
+		"--vault-id", "vault",
+		"--conflict-policy", "not-a-policy",
+	}, &stdout, &stderr)
+
+	// Then
+	if code != exitError {
+		t.Fatalf("exit code = %d, want %d, stderr = %q", code, exitError, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "conflict_policy") {
+		t.Fatalf("stderr = %q, want mention of conflict_policy", stderr.String())
+	}
+}
+
+func TestRunWatch_returnsConfigError_whenServerMissing(t *testing.T) {
+	// Given: watch should fail fast on a config error, the same as sync and
+	// status, without ever starting the filesystem watcher.
+	root := t.TempDir()
+	clearCommandEnv(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When
+	code := run([]string{"watch", "--vault-root", root, "--vault-id", "vault"}, &stdout, &stderr)
+
+	// Then
+	if code != exitError {
+		t.Fatalf("exit code = %d, want %d, stderr = %q", code, exitError, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "configuration error") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunWatch_rejectsInvalidConflictPolicyFlag(t *testing.T) {
+	// Given: watch shares conflict-policy validation with sync (config.Load
+	// is the single source of truth for both).
+	root := t.TempDir()
+	clearCommandEnv(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When
+	code := run([]string{
+		"watch",
+		"--vault-root", root,
+		"--server", "http://127.0.0.1:1",
+		"--vault-id", "vault",
+		"--conflict-policy", "not-a-policy",
+	}, &stdout, &stderr)
+
+	// Then
+	if code != exitError {
+		t.Fatalf("exit code = %d, want %d, stderr = %q", code, exitError, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "conflict_policy") {
+		t.Fatalf("stderr = %q, want mention of conflict_policy", stderr.String())
+	}
+}
+
+func TestRunWatch_rejectsNonPositiveWatchDebounceSecondsFlag(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	clearCommandEnv(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// When
+	code := run([]string{
+		"watch",
+		"--vault-root", root,
+		"--server", "http://127.0.0.1:1",
+		"--vault-id", "vault",
+		"--watch-debounce-seconds", "0",
+	}, &stdout, &stderr)
+
+	// Then
+	if code != exitError {
+		t.Fatalf("exit code = %d, want %d, stderr = %q", code, exitError, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "watch_debounce_seconds") {
+		t.Fatalf("stderr = %q, want mention of watch_debounce_seconds", stderr.String())
+	}
+}
+
+func TestCommandOptions_overrides_watchSettings(t *testing.T) {
+	// Given
+	options, ok := parseCommand(
+		commandSpec{name: "watch", includeWriteFlags: true, includeWatchFlags: true},
+		[]string{"--watch-debounce-seconds", "1.5", "--watch-interval-seconds", "600"},
+		commandIO{stdout: io.Discard, stderr: io.Discard},
+	)
+	if !ok {
+		t.Fatal("parseCommand() ok = false")
+	}
+
+	// When
+	overrides := options.overrides(false)
+
+	// Then
+	if !overrides.HasWatchDebounceSecondsOverride || overrides.WatchDebounceSeconds != 1.5 {
+		t.Fatalf("watch debounce override = %#v", overrides)
+	}
+	if !overrides.HasWatchIntervalSecondsOverride || overrides.WatchIntervalSeconds != 600 {
+		t.Fatalf("watch interval override = %#v", overrides)
+	}
+
+	// And: omitted flags leave HasOverride false.
+	options, ok = parseCommand(
+		commandSpec{name: "watch", includeWriteFlags: true, includeWatchFlags: true},
+		[]string{},
+		commandIO{stdout: io.Discard, stderr: io.Discard},
+	)
+	if !ok {
+		t.Fatal("parseCommand() ok = false")
+	}
+	overrides = options.overrides(false)
+	if overrides.HasWatchDebounceSecondsOverride || overrides.HasWatchIntervalSecondsOverride {
+		t.Fatalf("overrides = %#v, want no watch overrides when flags are omitted", overrides)
 	}
 }
 

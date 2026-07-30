@@ -10,6 +10,7 @@ from obsidian_sync.domain.files import (
     base64_encoded_size,
 )
 from obsidian_sync.domain.hashing import sha256_bytes, sha256_text
+from obsidian_sync.services.post_sync_indexing import NoopPostSyncIndexDispatcher
 from obsidian_sync.sync_agent.client import encode_vault_path
 
 DEVICE = 'dev1'
@@ -85,6 +86,21 @@ def _delete(
 def _storage_path(vault_id: str, path: str) -> Path:
     root = Path(os.environ['OBSIDIAN_SYNC_VAULT_STORAGE_ROOT'])
     return root / vault_id / path
+
+
+def _capture_enqueues(monkeypatch: Any) -> list[tuple[str, str]]:
+    enqueued: list[tuple[str, str]] = []
+
+    def enqueue_file(
+        self: NoopPostSyncIndexDispatcher,
+        *,
+        vault_id: str,
+        source_path: str,
+    ) -> None:
+        enqueued.append((vault_id, source_path))
+
+    monkeypatch.setattr(NoopPostSyncIndexDispatcher, 'enqueue_file', enqueue_file)
+    return enqueued
 
 
 # --- auth -----------------------------------------------------------------
@@ -586,6 +602,103 @@ def test_normal_markdown_is_flagged_for_vectorizing(
     )
     assert rows[0]['vectorize'] is True
     assert rows[0]['index_status'] == 'pending'
+
+
+def test_vectorizable_markdown_write_enqueues_once_after_success(
+    app_client: Any,
+    auth_headers: dict[str, str],
+    vault_id: str,
+    monkeypatch: Any,
+) -> None:
+    enqueued = _capture_enqueues(monkeypatch)
+
+    response = _put(
+        app_client,
+        auth_headers,
+        vault_id,
+        'notes/a.md',
+        base_revision=0,
+        content='body',
+    )
+
+    assert response.status_code == 200, response.text
+    assert enqueued == [(vault_id, 'notes/a.md')]
+
+
+def test_idempotent_conflict_delete_and_non_vectorizable_paths_do_not_enqueue(
+    app_client: Any,
+    auth_headers: dict[str, str],
+    vault_id: str,
+    monkeypatch: Any,
+) -> None:
+    _put(
+        app_client,
+        auth_headers,
+        vault_id,
+        'notes/a.md',
+        base_revision=0,
+        content='body',
+    )
+    enqueued = _capture_enqueues(monkeypatch)
+
+    idempotent = _put(
+        app_client,
+        auth_headers,
+        vault_id,
+        'notes/a.md',
+        base_revision=1,
+        content='body',
+    )
+    conflict = _put(
+        app_client,
+        auth_headers,
+        vault_id,
+        'notes/a.md',
+        base_revision=0,
+        content='changed',
+    )
+    delete = _delete(app_client, auth_headers, vault_id, 'notes/a.md', base_revision=1)
+    attachment = _put_binary(
+        app_client,
+        auth_headers,
+        vault_id,
+        'attachments/photo.png',
+        base_revision=0,
+        content=b'\x89PNG\r\n\x1a\nbytes',
+    )
+
+    assert idempotent.status_code == 200, idempotent.text
+    assert conflict.status_code == 409, conflict.text
+    assert delete.status_code == 200, delete.text
+    assert attachment.status_code == 200, attachment.text
+    assert enqueued == []
+
+
+def test_vectorizable_restore_enqueues_once_after_success(
+    app_client: Any,
+    auth_headers: dict[str, str],
+    vault_id: str,
+    monkeypatch: Any,
+) -> None:
+    _put(
+        app_client,
+        auth_headers,
+        vault_id,
+        'notes/a.md',
+        base_revision=0,
+        content='original',
+    )
+    _delete(app_client, auth_headers, vault_id, 'notes/a.md', base_revision=1)
+    enqueued = _capture_enqueues(monkeypatch)
+
+    response = app_client.post(
+        f'/vaults/{vault_id}/sync/restore',
+        json={'path': 'notes/a.md', 'device_id': DEVICE},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert enqueued == [(vault_id, 'notes/a.md')]
 
 
 def test_conflict_named_file_is_not_vectorized(

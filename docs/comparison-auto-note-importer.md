@@ -38,7 +38,7 @@ local vault
   -> obsisync sync/status 또는 obsidian-sync-agent watch
   -> FastAPI Sync API
   -> vaults/<vault_id>/ canonical files + PostgreSQL metadata
-  -> reindex/Ollama embedding
+  -> post-sync best-effort indexing 또는 수동 reindex/Ollama embedding
   -> knowledge_chunks(pgvector) + search API/MCP
 ```
 
@@ -119,8 +119,8 @@ watch 모드는 `watchdog` 기반으로 vault 변경을 감지하고 debounce �
 ### 1.6 한계와 리스크
 
 - `VaultSyncService.force_sync_file`은 이제 revision/event/version 경로에 통합되어 있지만, `overwrite=true`는 여전히 optimistic `base_revision` 없이 의도적으로 최신 서버 내용을 대체한다. 권한(`api_tokens.allow_overwrite`)과 감사(`sync_events.origin`, audit 로그)는 P1로 구현됐고(아래 P1 참고), UI 경고 정책은 P2 플러그인 몫으로 남아 있다.
-- MCP save workflow는 `sync_file -> reindex_vault`의 2단계다. write는 revision에 통합되었지만, 검색 가능 상태는 reindex 호출이 따라와야 완성된다.
-- reindex는 sync와 자동 연결되어 있지 않아 별도 호출이나 스케줄링이 필요하다.
+- MCP `sync_file` 저장은 성공한 벡터화 대상 Markdown이면 기본 설정에서 in-process best-effort 인덱싱을 예약한다. 이 작업은 durable queue가 아니므로 재시작, 실패, 자동 예약 비활성화 운영에서는 `reindex_vault`가 복구 경로로 남는다.
+- 수동 reindex는 전체 재구축, 실패 재처리, 프로세스 재시작 뒤 pending 복구에 계속 필요하다.
 - Markdown `vault_file_versions`는 retention/압축 정책이 없어 장기적으로 무한 증가할 수 있다.
 - `backup_vaults.py`는 vault/archive 파일 백업 중심이고 PostgreSQL 백업까지 포함하지 않는다.
 - frontmatter 파서는 자체 YAML subset이며, revision sync 코어와 MCP write 경로에 비해 frontmatter/indexing/search 테스트는 상대적으로 약하다.
@@ -295,7 +295,7 @@ CLI는 그대로 유지해야 한다. 플러그인은 Obsidian 실행 중 UX와 
 
 - `vault_file_versions` retention 정책 추가: 파일당 최근 N개 + 기간 기반 pruning을 조합한다.
 - PostgreSQL 백업을 운영 스크립트에 포함한다.
-- reindex 자동화 옵션을 제공한다. 예: sync 성공 후 pending 파일 수가 있으면 background reindex queue에 enqueue.
+- post-sync 인덱싱을 durable queue로 격상할지 검토한다. 현재는 같은 프로세스 안의 best-effort 예약이며, pending 상태의 복구는 수동 reindex가 맡는다.
 - retry backoff에 jitter를 추가해 다중 agent 복구 시 동시 재시도를 줄인다.
 - search/index/MCP/VaultSyncService 테스트를 revision sync 코어 수준까지 보강한다.
 - frontmatter parser를 PyYAML `safe_load` 기반으로 바꾸거나, 자체 subset 유지 시 테스트를 늘린다.

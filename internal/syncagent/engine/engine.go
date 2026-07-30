@@ -64,12 +64,20 @@ func RunStatus(ctx context.Context, cfg config.AgentConfig, options StatusOption
 }
 
 type syncRun struct {
-	ctx        context.Context
-	cfg        config.AgentConfig
-	state      *manifest.Manifest
-	syncClient SyncClient
-	summary    *Summary
-	now        func() time.Time
+	ctx             context.Context
+	cfg             config.AgentConfig
+	state           *manifest.Manifest
+	syncClient      SyncClient
+	summary         *Summary
+	now             func() time.Time
+	unsafePullPaths map[string]struct{}
+}
+
+func (r *syncRun) saveManifest() error {
+	if err := manifest.Save(r.cfg.VaultRoot, *r.state); err != nil {
+		return fmt.Errorf("save manifest: %w", err)
+	}
+	return nil
 }
 
 func (r *syncRun) run() error {
@@ -90,6 +98,9 @@ func (r *syncRun) run() error {
 	}
 	skipPaths := map[string]struct{}{}
 	for _, path := range r.summary.Conflicts {
+		skipPaths[path] = struct{}{}
+	}
+	for path := range r.unsafePullPaths {
 		skipPaths[path] = struct{}{}
 	}
 	scanned, excluded, scanWarnings, err := scanner.ScanVault(r.cfg.VaultRoot, r.cfg.SyncAttachments, r.cfg.AttachmentMaxBytes)

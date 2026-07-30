@@ -13,11 +13,12 @@ obsisync (로컬 vault)
         |
         +-- vault storage  (vaults/<vault_id>/<path>)  canonical 파일
         |       |
-        |       | PUT commit 성공 → index_status='pending'
+        |       | PUT/RESTORE commit 성공 → index_status='pending'
+        |       | post_sync_indexing_enabled=True면 in-process best-effort indexing 예약
         v       v
   PostgreSQL  (vault_files, sync_events, sync_conflicts, vault_file_versions)
         |
-        | POST /vaults/{vault_id}/reindex
+        | POST /vaults/{vault_id}/reindex (full rebuild / retry / restart recovery)
         v
   ReindexService  →  Ollama bge-m3 embed  →  knowledge_chunks (pgvector)
         |
@@ -307,6 +308,8 @@ Markdown 파일을 생성하거나 업데이트합니다.
 - `.md` 이외 파일: 400 UNSUPPORTED_FILE_TYPE
 - 요청 본문 크기 제한: `Content-Length`가 `sync_max_content_bytes`(기본 10MB) + 64KB(JSON envelope 여유분)를 초과하면 파싱 전에 413 `VALIDATION_ERROR`(`request body too large`)로 거부됩니다. 파싱 이후의 content 크기 검증도 그대로 유지됩니다.
 
+성공한 revision-backed Markdown 저장이 벡터화 대상이면 `index_status='pending'`으로 표시합니다. `post_sync_indexing_enabled=True`일 때는 같은 프로세스 안에서 best-effort 인덱싱도 예약합니다. 응답은 임베딩 완료를 기다리지 않습니다. durable queue가 아니므로 프로세스 재시작으로 예약 작업이 사라질 수 있고, 멀티 프로세스 전달도 보장하지 않습니다. 그래도 pending 행은 남으므로 이후 명시적인 `/reindex` 호출로 복구합니다.
+
 **요청 본문:**
 
 ```json
@@ -462,7 +465,7 @@ uv run python scripts/cleanup_deleted_files.py \
 POST /vaults/{vault_id}/sync/restore
 ```
 
-soft-delete된 파일을 이전 버전에서 복구합니다. `restore_revision`을 지정하면 해당 revision의 버전을 사용하고, 생략하면 가장 최신 저장 버전을 사용합니다. 복구 후 RESTORE 이벤트가 기록되고 `index_status='pending'`으로 설정됩니다.
+soft-delete된 파일을 이전 버전에서 복구합니다. `restore_revision`을 지정하면 해당 revision의 버전을 사용하고, 생략하면 가장 최신 저장 버전을 사용합니다. 복구 후 RESTORE 이벤트가 기록되고, 벡터화 대상 Markdown이면 `index_status='pending'`으로 설정합니다. `post_sync_indexing_enabled=True`일 때는 같은 프로세스 안에서 best-effort 인덱싱도 예약합니다. 응답은 임베딩 완료를 기다리지 않으며, 예약 작업이 사라진 경우에는 명시적인 `/reindex` 호출로 복구합니다.
 
 이 엔드포인트가 body-based인 이유: `{file_path:path}` 파라미터 뒤에 literal segment(`/restore`)를 붙이면 FastAPI 라우팅이 불안정합니다.
 

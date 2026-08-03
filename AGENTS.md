@@ -70,7 +70,7 @@ uv run ruff check . && uv run mypy && uv run pytest -q
 
 API and integration tests need local PostgreSQL with the pgvector extension; they create and migrate a dedicated `obsidian_sync_test` database. Ollama is stubbed in tests, so no other external service is required.
 
-Go tests are colocated as `*_test.go`. CI currently runs only the Python gate, so run the Go checks for changes under `cmd/` or `internal/`.
+Go tests are colocated as `*_test.go`. CI runs the Python gate and the Go gate as separate jobs on every push and pull request, so both are verified regardless of what a change touches. Locally, run the gate matching your change: the Python gate above, plus `go vet ./... && go test ./...` for changes under `cmd/` or `internal/`.
 
 ### Local Test Database
 

@@ -17,8 +17,11 @@ Vault와 서버의 Canonical Vault를 revision 기반으로 양방향 동기화�
 
 ```bash
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/Qulip/obsidian-sync/main/install.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Qulip/obsidian-sync/main/install.sh)
 ```
+
+> `curl ... | bash` 형태로 실행하면 스크립트가 표준 입력을 점유해 대화형 프롬프트가
+> 중단되고 바이너리만 설치됩니다. 위의 `bash <(...)` 형태를 사용하세요.
 
 ```powershell
 # Windows
@@ -42,8 +45,8 @@ irm https://raw.githubusercontent.com/Qulip/obsidian-sync/main/install.ps1 | iex
 지원 플랫폼: darwin/arm64, darwin/amd64, linux/amd64, linux/arm64,
 windows/amd64.
 
-> 설치 스크립트는 특정 릴리스 태그(현재 `v1.0.0`)를 고정해 내려받고 체크섬을
-> 검증합니다. 설치 후 `obsisync update`로 최신 릴리스로 올릴 수 있습니다.
+> 설치 스크립트는 항상 **최신 릴리스**를 내려받고, 같은 릴리스에 함께 게시된
+> `checksums.txt`로 무결성을 검증합니다. 이후 갱신은 `obsisync update`로 합니다.
 
 ### 소스에서 빌드
 

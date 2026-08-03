@@ -3,9 +3,9 @@
 set -euo pipefail
 
 readonly SKILL_NAME='knowledge-management'
-readonly RELEASE_TAG='v1.0.0'
-readonly RELEASE_URL="https://github.com/Qulip/obsidian-sync/releases/download/$RELEASE_TAG"
+readonly RELEASE_URL='https://github.com/Qulip/obsidian-sync/releases/latest/download'
 readonly SKILLS_ARCHIVE='obsidian-sync-skills.tar.gz'
+readonly CHECKSUMS_FILE='checksums.txt'
 
 INSTALLED_SKILLS=()
 MCP_URL=''
@@ -17,8 +17,11 @@ usage() {
   cat <<'EOF'
 Usage: ./install.sh
 
-Downloads and installs obsisync from release v1.0.0 for the current user,
+Downloads and installs obsisync from the latest release for the current user,
 optionally installs the knowledge-management skill, and collects MCP settings.
+
+Release assets are verified against the checksums.txt published with the same
+release.
 
 Environment:
   OBSIDIAN_SYNC_AGENT_INSTALL_DIR  Override the obsisync install directory.
@@ -66,18 +69,21 @@ download_release_asset() {
   curl --fail --location --silent --show-error --output "$destination" "$RELEASE_URL/$asset"
 }
 
+ensure_checksums() {
+  local checksums="$TEMP_DIR/$CHECKSUMS_FILE"
+  [[ -f "$checksums" ]] && return
+  download_release_asset "$CHECKSUMS_FILE" "$checksums"
+}
+
 verify_checksum() {
   local asset="$1"
   local file="$2"
   local expected actual
-  case "$asset" in
-    obsidian-sync-skills.tar.gz) expected='a30b9a9cd57a328c6d9f2d66535287a9b3c7e4f6dae7171bb608ff04dae380a8' ;;
-    obsisync-darwin-amd64.tar.gz) expected='55901f3fc6ed4446a7512ff62cf28825d2578a8e8034e3d89eec3e81b1a95179' ;;
-    obsisync-darwin-arm64.tar.gz) expected='5e709e126b5288417c8d21325ffbd50e1bb53ac0603d3e2988ba0c7b4ded468a' ;;
-    obsisync-linux-amd64.tar.gz) expected='93e70170d4ef284e9abc66219b0709dfeb0ea5d0fa2936b2d2295486a488b4ee' ;;
-    obsisync-linux-arm64.tar.gz) expected='b8eac8f800a2e93152f9ff0c1aa6fb72ff53fc4fc8713d93f4c6c8566c4e05cf' ;;
-    *) fatal "checksum was not configured for $asset" ;;
-  esac
+
+  ensure_checksums
+  expected="$(awk -v asset="$asset" '$2 == asset { print $1 }' "$TEMP_DIR/$CHECKSUMS_FILE")"
+  [[ "$expected" =~ ^[A-Fa-f0-9]{64}$ ]] || \
+    fatal "checksum was not published for $asset"
 
   if command -v sha256sum >/dev/null 2>&1; then
     actual="$(sha256sum "$file" | awk '{ print $1 }')"

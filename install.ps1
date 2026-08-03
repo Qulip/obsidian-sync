@@ -7,17 +7,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $SkillName = 'knowledge-management'
-$ReleaseTag = 'v1.0.0'
-$ReleaseUrl = "https://github.com/Qulip/obsidian-sync/releases/download/$ReleaseTag"
+$ReleaseUrl = 'https://github.com/Qulip/obsidian-sync/releases/latest/download'
 $SkillsArchive = 'obsidian-sync-skills.tar.gz'
-$ReleaseChecksums = @{
-    'obsidian-sync-skills.tar.gz' = 'a30b9a9cd57a328c6d9f2d66535287a9b3c7e4f6dae7171bb608ff04dae380a8'
-    'obsisync-darwin-amd64.tar.gz' = '55901f3fc6ed4446a7512ff62cf28825d2578a8e8034e3d89eec3e81b1a95179'
-    'obsisync-darwin-arm64.tar.gz' = '5e709e126b5288417c8d21325ffbd50e1bb53ac0603d3e2988ba0c7b4ded468a'
-    'obsisync-linux-amd64.tar.gz' = '93e70170d4ef284e9abc66219b0709dfeb0ea5d0fa2936b2d2295486a488b4ee'
-    'obsisync-linux-arm64.tar.gz' = 'b8eac8f800a2e93152f9ff0c1aa6fb72ff53fc4fc8713d93f4c6c8566c4e05cf'
-    'obsisync-windows-amd64.zip' = '3e664a50ab4d414c2ebee2261a4dda4a3aef974eccc91e68102644f041564ca8'
-}
+$ChecksumsFile = 'checksums.txt'
+$ReleaseChecksums = $null
 $SkillSource = $null
 $TemporaryDirectory = $null
 $InstalledSkills = [System.Collections.Generic.List[string]]::new()
@@ -26,8 +19,11 @@ function Show-Usage {
     @'
 Usage: .\install.ps1
 
-Downloads and installs obsisync from release v1.0.0 for the current user,
+Downloads and installs obsisync from the latest release for the current user,
 optionally installs the knowledge-management skill, and collects MCP settings.
+
+Release assets are verified against the checksums.txt published with the same
+release.
 
 Environment:
   OBSIDIAN_SYNC_AGENT_INSTALL_DIR  Override the obsisync install directory.
@@ -59,10 +55,32 @@ function Download-ReleaseAsset([string]$Asset, [string]$Destination) {
     Invoke-WebRequest -Uri "$ReleaseUrl/$Asset" -OutFile $Destination
 }
 
+function Get-ReleaseChecksums {
+    if ($null -ne $script:ReleaseChecksums) {
+        return $script:ReleaseChecksums
+    }
+
+    $path = Join-Path $script:TemporaryDirectory $script:ChecksumsFile
+    Download-ReleaseAsset $script:ChecksumsFile $path
+
+    $checksums = @{}
+    foreach ($line in Get-Content -LiteralPath $path) {
+        if ($line -match '^([A-Fa-f0-9]{64})\s+\*?(\S+)$') {
+            $checksums[$Matches[2]] = $Matches[1]
+        }
+    }
+    if ($checksums.Count -eq 0) {
+        throw "No checksums were parsed from $script:ChecksumsFile"
+    }
+
+    $script:ReleaseChecksums = $checksums
+    return $script:ReleaseChecksums
+}
+
 function Test-ReleaseChecksum([string]$Asset, [string]$Path) {
-    $expected = $script:ReleaseChecksums[$Asset]
+    $expected = (Get-ReleaseChecksums)[$Asset]
     if ($null -eq $expected -or $expected -notmatch '^[A-Fa-f0-9]{64}$') {
-        throw "Checksum format is invalid for $Asset"
+        throw "Checksum was not published for $Asset"
     }
     $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash
     if ($actual -ne $expected.ToUpperInvariant()) {
@@ -103,7 +121,7 @@ function Install-Agent {
         Join-Path $env:LOCALAPPDATA 'Programs\obsisync'
     }
     if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [Runtime.InteropServices.Architecture]::X64) {
-        throw 'Release v1.0.0 supports Windows x64 only.'
+        throw 'Windows releases are published for x64 only.'
     }
     $installDirectory = [IO.Path]::GetFullPath($installDirectory)
     if ($installDirectory.Contains([IO.Path]::PathSeparator)) {

@@ -12,6 +12,8 @@ MCP_URL=''
 MCP_TOKEN=''
 SKILL_SOURCE=''
 TEMP_DIR=''
+INPUT_FD=0
+INTERACTIVE='false'
 
 usage() {
   cat <<'EOF'
@@ -35,9 +37,47 @@ fatal() {
   exit 1
 }
 
+# Prompts must not read from standard input: with `curl ... | bash` the script
+# body itself is on stdin, so a plain `read` would consume the remaining script.
+# Fall back to the controlling terminal, and skip prompts when there is none.
+open_input() {
+  if [[ -t 0 ]]; then
+    INPUT_FD=0
+    INTERACTIVE='true'
+  elif { exec 3</dev/tty; } 2>/dev/null; then
+    INPUT_FD=3
+    INTERACTIVE='true'
+  else
+    INTERACTIVE='false'
+  fi
+  readonly INPUT_FD INTERACTIVE
+}
+
+# ask <prompt> [secret] -- prints the answer on standard output.
+# Bash 3.2 compatible: no namerefs, so callers use command substitution.
+ask() {
+  local prompt="$1"
+  local secret="${2:-}"
+  local reply=''
+
+  if [[ "$INTERACTIVE" == 'true' ]]; then
+    printf '%s' "$prompt" >&2
+    # Redirect onto standard input rather than using `read -u`: bash 3.2 only
+    # suppresses echo for `read -s` when it reads from file descriptor 0.
+    if [[ "$secret" == 'secret' ]]; then
+      read -r -s reply <&"$INPUT_FD" || reply=''
+      printf '\n' >&2
+    else
+      read -r reply <&"$INPUT_FD" || reply=''
+    fi
+  fi
+
+  printf '%s' "$reply"
+}
+
 confirm() {
   local response
-  read -r -p "$1 [y/N] > " response
+  response="$(ask "$1 [y/N] > ")"
   [[ "$response" == 'y' || "$response" == 'Y' || "$response" == 'yes' || "$response" == 'YES' ]]
 }
 
@@ -135,6 +175,11 @@ install_agent() {
 }
 
 select_agents() {
+  if [[ "$INTERACTIVE" != 'true' ]]; then
+    printf '\nNo terminal is available; skipping skill installation.\n'
+    return 0
+  fi
+
   cat <<'EOF'
 
 Install the knowledge-management skill for coding agents (comma-separated):
@@ -148,7 +193,7 @@ Leave blank to skip skill installation.
 EOF
 
   local raw choice
-  read -r -p 'Selection > ' raw
+  raw="$(ask 'Selection > ')"
   [[ -n "$raw" ]] || return 0
   IFS=',' read -r -a SELECTED_AGENTS <<< "$raw"
   for choice in "${SELECTED_AGENTS[@]}"; do
@@ -183,13 +228,19 @@ install_skill() {
 
 collect_mcp_settings() {
   local value
+
+  if [[ "$INTERACTIVE" != 'true' ]]; then
+    MCP_URL="${OBSIDIAN_SYNC_URL:-}"
+    MCP_TOKEN="${KNOWLEDGE_API_TOKEN:-}"
+    return 0
+  fi
+
   printf '\nMCP connection settings (leave blank to retain an existing environment value).\n'
 
-  read -r -p '  OBSIDIAN_SYNC_URL (for example, https://sync.example.com) > ' value
+  value="$(ask '  OBSIDIAN_SYNC_URL (for example, https://sync.example.com) > ')"
   MCP_URL="${value:-${OBSIDIAN_SYNC_URL:-}}"
 
-  read -r -s -p '  KNOWLEDGE_API_TOKEN (DB API token; not an admin token) > ' value
-  printf '\n'
+  value="$(ask '  KNOWLEDGE_API_TOKEN (DB API token; not an admin token) > ' secret)"
   MCP_TOKEN="${value:-${KNOWLEDGE_API_TOKEN:-}}"
 }
 
@@ -270,6 +321,7 @@ main() {
   esac
 
   require_release_tools
+  open_input
   TEMP_DIR="$(mktemp -d)"
   trap 'rm -rf "$TEMP_DIR"' EXIT
   install_agent

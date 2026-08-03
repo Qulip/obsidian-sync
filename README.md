@@ -104,7 +104,7 @@ curl -sS -X POST http://localhost:8000/vaults \
 
 ```bash
 # macOS / Linux
-bash <(curl -fsSL https://raw.githubusercontent.com/Qulip/obsidian-sync/main/install.sh)
+curl -fsSL https://raw.githubusercontent.com/Qulip/obsidian-sync/main/install.sh | bash
 ```
 
 ```powershell

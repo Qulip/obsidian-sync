@@ -17,11 +17,8 @@ Vault와 서버의 Canonical Vault를 revision 기반으로 양방향 동기화�
 
 ```bash
 # macOS / Linux
-bash <(curl -fsSL https://raw.githubusercontent.com/Qulip/obsidian-sync/main/install.sh)
+curl -fsSL https://raw.githubusercontent.com/Qulip/obsidian-sync/main/install.sh | bash
 ```
-
-> `curl ... | bash` 형태로 실행하면 스크립트가 표준 입력을 점유해 대화형 프롬프트가
-> 중단되고 바이너리만 설치됩니다. 위의 `bash <(...)` 형태를 사용하세요.
 
 ```powershell
 # Windows

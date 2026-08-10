@@ -218,6 +218,23 @@ Admin token은 일반 API와 MCP에서 **의도적으로 거부**됩니다. 토�
 
 ### 마이그레이션
 
+컨테이너는 기동 시 `docker-entrypoint.sh`가 `alembic upgrade head`를 먼저
+실행하고, 성공한 뒤에만 uvicorn을 띄웁니다. 마이그레이션이 계속 실패하면
+컨테이너는 기동하지 않고 종료되므로, 스키마가 뒤처진 상태로 요청을 받는 일은
+없습니다.
+
+| 변수 | 기본값 | 설명 |
+| --- | --- | --- |
+| `OBSIDIAN_SYNC_RUN_MIGRATIONS` | `1` | `0`이면 기동 시 마이그레이션을 건너뜀 |
+| `OBSIDIAN_SYNC_MIGRATION_ATTEMPTS` | `10` | DB 기동 대기용 재시도 횟수 |
+| `OBSIDIAN_SYNC_MIGRATION_RETRY_SECONDS` | `3` | 재시도 간격(초) |
+
+여러 레플리카가 동시에 기동해도 `alembic/env.py`가 Postgres advisory lock으로
+직렬화하므로 한쪽만 DDL을 수행합니다. 별도 릴리스 잡이 마이그레이션을 담당한다면
+`OBSIDIAN_SYNC_RUN_MIGRATIONS=0`으로 끄십시오.
+
+수동 실행:
+
 ```bash
 uv run alembic upgrade head
 uv run alembic current

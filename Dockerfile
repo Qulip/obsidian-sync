@@ -10,9 +10,12 @@ COPY pyproject.toml uv.lock README.md ./
 COPY alembic.ini main.py ./
 COPY alembic ./alembic
 COPY src ./src
+COPY docker-entrypoint.sh ./
 
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev \
+    && chmod +x /app/docker-entrypoint.sh
 
 EXPOSE 8000
 
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["uv", "run", "--frozen", "uvicorn", "obsidian_sync.app:app", "--host", "0.0.0.0", "--port", "8000"]

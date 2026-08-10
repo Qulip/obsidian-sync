@@ -18,6 +18,9 @@ target_metadata = Base.metadata
 
 PLACEHOLDER_DATABASE_URL = 'postgresql+asyncpg://user:pass@localhost/obsidian_sync'
 
+# Arbitrary but stable key; only this project's migration runs contend for it.
+_MIGRATION_LOCK_KEY = 7318452901234567
+
 
 def get_database_url() -> str:
     settings = Settings()
@@ -50,6 +53,10 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    # Container startup applies migrations (docker-entrypoint.sh), so several
+    # replicas can boot at once. Serialize them for the transaction's lifetime
+    # instead of letting concurrent CREATE EXTENSION/DDL collide.
+    connection.execute(text(f'SELECT pg_advisory_xact_lock({_MIGRATION_LOCK_KEY})'))
     connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS {DB_SCHEMA}'))
     connection.execute(text('CREATE EXTENSION IF NOT EXISTS vector'))
     context.configure(

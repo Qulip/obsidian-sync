@@ -9,6 +9,8 @@ thin CLI; this subtree owns protocol behavior and safe local vault operations.
 
 ```text
 engine/       # pull, scan, push, status orchestration
+watch/        # fsnotify-backed continuous sync loop, debounce, and filtering
+updater/      # release lookup and self-update binary replacement
 client/       # HTTP contract and typed errors
 scanner/      # vault discovery and ignore application
 manifest/     # durable local sync state

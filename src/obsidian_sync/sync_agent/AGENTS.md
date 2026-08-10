@@ -3,7 +3,8 @@
 ## OVERVIEW
 
 Compatibility and rollback client. `uv run obsidian-sync-agent` selects this
-implementation; the Go agent is the default distribution and lacks `watch`.
+implementation; the Go agent (`obsisync`) is the default distribution. Both
+agents support `watch` — this one via `watchdog`, the Go one via `fsnotify`.
 
 ## WHERE TO LOOK
 

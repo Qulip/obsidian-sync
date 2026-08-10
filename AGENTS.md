@@ -1,9 +1,5 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-07-13 (Asia/Seoul)
-**Commit:** 2ec6a4f
-**Branch:** main
-
 ## OVERVIEW
 
 Obsidian Sync is a Python 3.14 FastAPI service and a Go 1.23 local sync-agent
@@ -16,27 +12,49 @@ src/obsidian_sync/     # FastAPI service and Python compatibility agent
 cmd/                   # Go agent command entry point
 internal/syncagent/    # Go agent implementation
 alembic/               # authoritative schema migration chain
+db/                    # baseline DDL reference only; never a migration substitute
 tests/                 # Python unit, API, and integration tests
 docs/                  # current protocol and operational contracts
+scripts/               # operational helper scripts (backup, cleanup, eval)
+SKILLS/                # agent skills packaged into releases
+install.sh, install.ps1  # end-user agent installers
+Makefile               # Go agent build targets
 ```
+
+### Nested knowledge bases
+
+Read the AGENTS.md nearest to the code you are changing; each one owns the
+conventions and invariants for its subtree.
+
+| File | Scope |
+|---|---|
+| `src/obsidian_sync/AGENTS.md` | FastAPI service layering, route/session rules, critical invariants |
+| `src/obsidian_sync/sync_agent/AGENTS.md` | Python compatibility agent CLI |
+| `internal/syncagent/AGENTS.md` | Go agent protocol and local filesystem safety |
+| `alembic/AGENTS.md` | Migration chain conventions |
 
 ## WHERE TO LOOK
 
 | Task | Location | Notes |
 |---|---|---|
-| ASGI startup and MCP mounting | `src/obsidian_sync/app.py` | `create_app()` builds the import-time app. |
+| ASGI startup and MCP mounting | `src/obsidian_sync/app.py` | `create_app()` builds the import-time app and owns the post-sync index worker lifespan. |
 | API request handling | `src/obsidian_sync/api/` | REST and REST-shaped MCP adapters. |
 | Sync write semantics | `src/obsidian_sync/services/revision_sync.py` | Revision, storage, conflict, and rollback workflow. |
+| Post-sync indexing | `src/obsidian_sync/services/post_sync_indexing.py` | Dispatcher and background worker that schedule indexing after a committed sync. |
 | Production local client | `internal/syncagent/` | Go implementation built by `make build-agent`. |
+| Agent self-update | `internal/syncagent/updater/` | Release lookup and binary replacement for `obsisync`. |
 | Schema evolution | `alembic/versions/` | Linear migration history; raw DDL is reference only. |
+| Container startup | `Dockerfile`, `docker-entrypoint.sh` | Entrypoint applies migrations before the ASGI process starts. |
 
 ## CODE MAP
 
-| Symbol | Type | Location | Refs | Role |
-|---|---|---|---:|---|
-| `create_app` | function | `app.py` | 1 | ASGI lifespan, error handling, router/MCP mounting |
-| `RevisionSyncService` | class | `services/revision_sync.py` | 5 | Canonical revisioned vault writes |
-| `VaultSyncService` | class | `services/vault_sync.py` | 6 | MCP-oriented vault workflows |
+| Symbol | Type | Location | Role |
+|---|---|---|---|
+| `create_app` | function | `app.py` | ASGI lifespan, error handling, router/MCP mounting |
+| `RevisionSyncService` | class | `services/revision_sync.py` | Canonical revisioned vault writes |
+| `VaultSyncService` | class | `services/vault_sync.py` | MCP-oriented vault workflows |
+| `PostSyncIndexDispatcher` | protocol | `services/post_sync_indexing.py` | Schedule contract for indexing paths touched by a committed sync |
+| `AsyncPostSyncIndexWorker` | class | `services/post_sync_indexing.py` | Background dispatcher implementation started by the app lifespan |
 
 ## Project Structure & Module Organization
 
@@ -53,6 +71,17 @@ This is a Python 3.14 FastAPI service using a `src/` layout. Application code li
 - `docker build -t obsidian-sync-api .`: build the API container image.
 - `go test ./... && go vet ./...`: verify the Go sync agent.
 - `make build-agent`: build the Go agent at `dist/obsisync/`.
+- `make build-agent-all VERSION=<tag>`: cross-compile the release artifacts.
+
+## Deployment
+
+The container entrypoint (`docker-entrypoint.sh`) runs `alembic upgrade head`
+with bounded retries before `exec`ing the ASGI command, so a fresh deployment
+never serves requests against an unmigrated schema. Set
+`OBSIDIAN_SYNC_RUN_MIGRATIONS=0` when a separate release job owns migrations;
+`OBSIDIAN_SYNC_MIGRATION_ATTEMPTS` and `OBSIDIAN_SYNC_MIGRATION_RETRY_SECONDS`
+tune the retry loop. If migrations never succeed, the entrypoint exits instead
+of starting the API.
 
 ## Coding Style & Naming Conventions
 

@@ -38,6 +38,10 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		printHelp(stdout)
 		return exitOK
 	}
+	if args[0] == "--version" || args[0] == "-v" {
+		printVersion(stdout)
+		return exitOK
+	}
 	switch args[0] {
 	case "status":
 		return runStatus(args[1:], stdout, stderr)
@@ -47,6 +51,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		return runWatch(args[1:], stdout, stderr)
 	case "update":
 		return runUpdate(args[1:], stdout, stderr)
+	case "version":
+		return runVersion(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "%s: unknown command %q\n", commandName, args[0])
 		return exitError
@@ -57,6 +63,7 @@ func printHelp(output io.Writer) {
 	fmt.Fprintf(output, "%s\n\n", commandName)
 	fmt.Fprintln(output, "Usage:")
 	fmt.Fprintf(output, "  %s --help\n", commandName)
+	fmt.Fprintf(output, "  %s --version\n", commandName)
 	fmt.Fprintf(output, "  %s <command> [flags]\n", commandName)
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Commands:")
@@ -64,6 +71,26 @@ func printHelp(output io.Writer) {
 	fmt.Fprintln(output, "  status")
 	fmt.Fprintln(output, "  watch")
 	fmt.Fprintln(output, "  update")
+	fmt.Fprintln(output, "  version")
+}
+
+// runVersion implements the `version` subcommand. --version and -v at the
+// top level (handled in run) print the same output via printVersion.
+func runVersion(args []string, stdout io.Writer, stderr io.Writer) int {
+	if len(args) > 0 {
+		fmt.Fprintf(stderr, "%s version: unexpected argument %q\n", commandName, args[0])
+		return exitError
+	}
+	printVersion(stdout)
+	return exitOK
+}
+
+// printVersion prints the installed version, matching the formatting the
+// updater package uses when reporting the current version (e.g. "(v1.0.1)"):
+// the raw version string as set at build time via -ldflags -X main.version,
+// prefixed with the command name.
+func printVersion(output io.Writer) {
+	fmt.Fprintf(output, "%s %s\n", commandName, version)
 }
 
 type commandOptions struct {

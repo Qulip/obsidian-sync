@@ -209,6 +209,21 @@ class SyncRepository:
         self._session.add(conflict)
         return conflict
 
+    async def resolve_open_conflicts(
+        self, *, vault_id: str, source_path: str
+    ) -> int:
+        result = await self._session.execute(
+            update(SyncConflict)
+            .where(
+                SyncConflict.vault_id == vault_id,
+                SyncConflict.source_path == source_path,
+                SyncConflict.status == 'OPEN',
+            )
+            .values(status='RESOLVED', resolved_at=func.now())
+            .returning(SyncConflict.id)
+        )
+        return len(result.all())
+
     async def get_version(
         self,
         *,

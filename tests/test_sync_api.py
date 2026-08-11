@@ -577,6 +577,109 @@ def test_status_counts_move_as_expected(
     assert status2['open_conflicts'] == 1
 
 
+def test_successful_put_resolves_open_conflict_on_same_path(
+    app_client: Any,
+    auth_headers: dict[str, str],
+    vault_id: str,
+    db_fetch: Any,
+) -> None:
+    _put(app_client, auth_headers, vault_id, 'a.md', base_revision=0, content='v1')
+    conflict_response = _put(
+        app_client, auth_headers, vault_id, 'a.md', base_revision=0, content='v2'
+    )
+    assert conflict_response.status_code == 409
+    status = app_client.get(
+        f'/vaults/{vault_id}/sync/status', headers=auth_headers
+    ).json()['data']
+    assert status['open_conflicts'] == 1
+
+    response = _put(
+        app_client,
+        auth_headers,
+        vault_id,
+        'a.md',
+        base_revision=1,
+        content='merged',
+    )
+    assert response.status_code == 200, response.text
+
+    status2 = app_client.get(
+        f'/vaults/{vault_id}/sync/status', headers=auth_headers
+    ).json()['data']
+    assert status2['open_conflicts'] == 0
+
+    rows = db_fetch(
+        'SELECT status, resolved_at FROM obsidian.sync_conflicts '
+        'WHERE vault_id = $1 AND source_path = $2',
+        vault_id,
+        'a.md',
+    )
+    assert len(rows) == 1
+    assert rows[0]['status'] == 'RESOLVED'
+    assert rows[0]['resolved_at'] is not None
+
+
+def test_conflict_on_other_path_is_left_open(
+    app_client: Any,
+    auth_headers: dict[str, str],
+    vault_id: str,
+    db_fetch: Any,
+) -> None:
+    _put(app_client, auth_headers, vault_id, 'a.md', base_revision=0, content='v1')
+    _put(app_client, auth_headers, vault_id, 'a.md', base_revision=0, content='v2')
+
+    response = _put(
+        app_client, auth_headers, vault_id, 'b.md', base_revision=0, content='b'
+    )
+    assert response.status_code == 200, response.text
+
+    status = app_client.get(
+        f'/vaults/{vault_id}/sync/status', headers=auth_headers
+    ).json()['data']
+    assert status['open_conflicts'] == 1
+
+    rows = db_fetch(
+        "SELECT status FROM obsidian.sync_conflicts "
+        'WHERE vault_id = $1 AND source_path = $2',
+        vault_id,
+        'a.md',
+    )
+    assert len(rows) == 1
+    assert rows[0]['status'] == 'OPEN'
+
+
+def test_delete_resolves_open_conflicts_for_its_path(
+    app_client: Any,
+    auth_headers: dict[str, str],
+    vault_id: str,
+    db_fetch: Any,
+) -> None:
+    _put(app_client, auth_headers, vault_id, 'a.md', base_revision=0, content='v1')
+    _put(app_client, auth_headers, vault_id, 'a.md', base_revision=0, content='v2')
+
+    status = app_client.get(
+        f'/vaults/{vault_id}/sync/status', headers=auth_headers
+    ).json()['data']
+    assert status['open_conflicts'] == 1
+
+    response = _delete(app_client, auth_headers, vault_id, 'a.md', base_revision=1)
+    assert response.status_code == 200, response.text
+
+    status2 = app_client.get(
+        f'/vaults/{vault_id}/sync/status', headers=auth_headers
+    ).json()['data']
+    assert status2['open_conflicts'] == 0
+
+    rows = db_fetch(
+        'SELECT status FROM obsidian.sync_conflicts '
+        'WHERE vault_id = $1 AND source_path = $2',
+        vault_id,
+        'a.md',
+    )
+    assert len(rows) == 1
+    assert rows[0]['status'] == 'RESOLVED'
+
+
 # --- vectorizing flags ----------------------------------------------------
 
 

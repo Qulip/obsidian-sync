@@ -360,6 +360,9 @@ class RevisionSyncService:
             content_bytes,
         )
         await self._commit_staged_file(staged, source_path)
+        await self._repo.resolve_open_conflicts(
+            vault_id=vault.vault_id, source_path=source_path
+        )
         if vectorizable:
             self._post_sync_index_dispatcher.enqueue_file(
                 vault_id=vault.vault_id,
@@ -412,6 +415,9 @@ class RevisionSyncService:
             content_hash=last_hash,
             deleted=True,
             device_id=request.device_id,
+        )
+        await self._repo.resolve_open_conflicts(
+            vault_id=vault.vault_id, source_path=source_path
         )
         return DeleteFileData(
             vault_id=vault.vault_id,
@@ -500,6 +506,9 @@ class RevisionSyncService:
             content_bytes,
         )
         await self._commit_staged_file(staged, source_path)
+        await self._repo.resolve_open_conflicts(
+            vault_id=vault.vault_id, source_path=source_path
+        )
         if vectorizable:
             self._post_sync_index_dispatcher.enqueue_file(
                 vault_id=vault.vault_id,

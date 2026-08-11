@@ -26,6 +26,9 @@ type pushFile struct {
 }
 
 func (r *syncRun) push(local scanner.LocalChanges, skipPaths map[string]struct{}) error {
+	if err := r.resolveTrackedConflicts(skipPaths); err != nil {
+		return err
+	}
 	for _, path := range local.New {
 		if _, skip := skipPaths[path]; skip {
 			continue
@@ -77,6 +80,74 @@ func (r *syncRun) modifiedBase(path string) (int, bool, error) {
 		return 0, false, nil
 	}
 	return trackedConflict.ServerRevision, true, nil
+}
+
+// resolveTrackedConflicts resolves conflicts left over from an earlier run
+// under local-wins/remote-wins before the normal New/Modified/Deleted scan
+// runs. pushConflict (below) only ever fires on a *fresh* 409, so a conflict
+// that was already recorded in r.state.Conflicts on a prior run is otherwise
+// never revisited: modifiedBase keeps refusing to push it as long as the
+// local file still hashes to the tracked LocalContentHash, leaving it stuck
+// forever even though the configured policy says how to resolve it. Manual
+// policy is exempt by design: a conflict is explicit, never an automatic
+// merge, so it must wait for the user to edit the file.
+func (r *syncRun) resolveTrackedConflicts(skipPaths map[string]struct{}) error {
+	// Guard by allow-list, not by excluding ConflictPolicyManual: an
+	// AgentConfig built without going through config resolution (as in
+	// several existing tests) leaves ConflictPolicy at its zero value, which
+	// must behave like manual, not like an unrecognized policy that falls
+	// through this function's switch and gets treated as resolved.
+	if r.cfg.ConflictPolicy != config.ConflictPolicyLocalWins && r.cfg.ConflictPolicy != config.ConflictPolicyRemoteWins {
+		return nil
+	}
+	for _, path := range sortedConflictPaths(r.state.Conflicts) {
+		if _, skip := skipPaths[path]; skip {
+			continue
+		}
+		tracked := r.state.Conflicts[path]
+		destination, ok := vaultPath(r.cfg.VaultRoot, path, r.cfg.SyncAttachments)
+		if !ok {
+			return fmt.Errorf("%w: unsafe local path %s", ErrSync, path)
+		}
+		localExists := existsPath(destination)
+		if tracked.ServerDeleted && !localExists {
+			// Both sides already agree the file is gone; nothing to push.
+			delete(r.state.Files, path)
+			delete(r.state.Conflicts, path)
+			if err := r.saveManifest(); err != nil {
+				return err
+			}
+			skipPaths[path] = struct{}{}
+			continue
+		}
+		file := pushFile{path: path, isDelete: !localExists}
+		if localExists {
+			content, err := os.ReadFile(destination)
+			if err != nil {
+				return fmt.Errorf("read local file %s: %w", path, err)
+			}
+			file.localContent = content
+		}
+		switch r.cfg.ConflictPolicy {
+		case config.ConflictPolicyLocalWins:
+			resolved, err := r.pushConflictLocalWins(file, tracked.ServerRevision)
+			if err != nil {
+				return err
+			}
+			if !resolved {
+				// Retries exhausted; leave the tracked conflict in place for
+				// manual resolution rather than clearing it silently.
+				r.summary.Warnings = append(r.summary.Warnings, "local-wins could not resolve tracked conflict on "+path+"; leaving for manual resolution")
+				continue
+			}
+		case config.ConflictPolicyRemoteWins:
+			if err := r.pushConflictRemoteWins(file); err != nil {
+				return err
+			}
+		}
+		skipPaths[path] = struct{}{}
+	}
+	return nil
 }
 
 func (r *syncRun) pushUpsert(file pushFile) error {
@@ -155,7 +226,8 @@ func (r *syncRun) pushDelete(path string) error {
 func (r *syncRun) pushConflict(file pushFile) error {
 	switch r.cfg.ConflictPolicy {
 	case config.ConflictPolicyLocalWins:
-		resolved, err := r.pushConflictLocalWins(file)
+		serverRevision := intDetail(file.conflictErr.Details["server_revision"])
+		resolved, err := r.pushConflictLocalWins(file, serverRevision)
 		if err != nil {
 			return err
 		}
@@ -201,9 +273,11 @@ func (r *syncRun) pushManualConflict(file pushFile) error {
 
 // pushConflictLocalWins retries pushing local content (or the local delete)
 // as the winner, bounded by localWinsMaxAttempts. Mirrors
-// conflict_resolution._resolve_push_conflict_local_wins.
-func (r *syncRun) pushConflictLocalWins(file pushFile) (bool, error) {
-	serverRevision := intDetail(file.conflictErr.Details["server_revision"])
+// conflict_resolution._resolve_push_conflict_local_wins. serverRevision is
+// passed explicitly rather than read off file.conflictErr because a tracked
+// conflict resolved by resolveTrackedConflicts has no fresh ConflictError to
+// dig it out of.
+func (r *syncRun) pushConflictLocalWins(file pushFile, serverRevision int) (bool, error) {
 	if file.isDelete {
 		resolved, err := r.resolveLocalWinsDelete(file.path, serverRevision)
 		if err != nil || !resolved {

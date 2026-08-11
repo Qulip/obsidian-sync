@@ -20,6 +20,13 @@ our PUT/DELETE with a 409) and delegates the actual resolution here based on
 Auto-resolved conflicts are never appended to ``summary.conflicts`` -- only
 the manual policy (or an exhausted local-wins fallback) is, since that is
 what should surface as a non-zero exit code.
+
+``resolve_push_conflict_local_wins``/``resolve_push_conflict_remote_wins``
+are also called directly by ``engine._resolve_tracked_conflicts`` to resolve
+conflicts left over in ``manifest.conflicts`` from an earlier run, not just
+a fresh 409 -- that is why ``resolve_push_conflict_local_wins`` takes the
+server revision as an explicit parameter instead of pulling it out of a
+``SyncConflictError``, which a tracked conflict does not have.
 """
 
 import logging
@@ -306,7 +313,7 @@ def resolve_push_conflict(
     client_base = _int_detail(exc.details.get('client_base_revision'))
 
     if policy == 'local-wins':
-        if _resolve_push_conflict_local_wins(
+        if resolve_push_conflict_local_wins(
             config,
             client,
             manifest,
@@ -324,7 +331,7 @@ def resolve_push_conflict(
             path,
         )
     elif policy == 'remote-wins':
-        _resolve_push_conflict_remote_wins(
+        resolve_push_conflict_remote_wins(
             config,
             client,
             manifest,
@@ -390,7 +397,7 @@ def resolve_push_conflict(
         logger.warning('push conflict on %s; no content available to preserve', path)
 
 
-def _resolve_push_conflict_local_wins(
+def resolve_push_conflict_local_wins(
     config: AgentConfig,
     client: SyncClient,
     manifest: Manifest,
@@ -442,7 +449,7 @@ def _resolve_push_conflict_local_wins(
     return True
 
 
-def _resolve_push_conflict_remote_wins(
+def resolve_push_conflict_remote_wins(
     config: AgentConfig,
     client: SyncClient,
     manifest: Manifest,

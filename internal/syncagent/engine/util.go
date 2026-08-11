@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"sort"
 
+	"github.com/Qulip/obsidian-sync/internal/syncagent/manifest"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/rules"
 	"github.com/Qulip/obsidian-sync/internal/syncagent/vaultfs"
 )
@@ -41,4 +43,16 @@ func intDetail(raw json.RawMessage) int {
 		return 0
 	}
 	return value
+}
+
+// sortedConflictPaths returns manifest conflict paths in deterministic order
+// so resolving conflicts left over from an earlier run doesn't depend on Go's
+// randomized map iteration.
+func sortedConflictPaths(conflicts map[string]manifest.Conflict) []string {
+	paths := make([]string, 0, len(conflicts))
+	for path := range conflicts {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
 }

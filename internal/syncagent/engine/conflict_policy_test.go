@@ -520,3 +520,253 @@ func TestRunSyncPushDeleteConflict_manualWritesConflictFile(t *testing.T) {
 		t.Fatalf("conflict body missing expected content:\n%s", body)
 	}
 }
+
+// --- Tracked conflicts left over from an earlier run ---
+//
+// A conflict recorded under manual policy (or a local-wins/remote-wins
+// attempt that exhausted its retries) is written into the manifest's
+// conflicts map. pushConflict only ever fires on a *fresh* 409 from our own
+// PUT/DELETE; it never revisits state.Conflicts. Without resolveTrackedConflicts,
+// a later run with --conflict-policy local-wins/remote-wins reports
+// conflicts=0 and "sync completed successfully" but pushes nothing, and the
+// conflict stays in the manifest forever.
+
+func TestRunSyncTrackedConflict_localWinsResolvesLeftoverConflict(t *testing.T) {
+	// Given: note.md was already recorded as a conflict by an earlier
+	// (manual-policy) run; the local file still holds the same dirty content
+	// that was in place when the conflict was recorded.
+	vault := newVaultFixture(t)
+	vault.writeNote("note.md", "LOCAL DIRTY CONTENT")
+	saveManifest(t, vault.root, manifest.Manifest{
+		VaultID:        "vault",
+		DeviceID:       "dev",
+		LastSyncCursor: 5,
+		Files: map[string]manifest.Entry{
+			"note.md": {ServerRevision: 4, ContentHash: testHashText("OLD SYNCED CONTENT"), LastSyncedAt: fixedNowString},
+		},
+		Conflicts: map[string]manifest.Conflict{
+			"note.md": {
+				ServerRevision:    5,
+				ServerContentHash: stringPtr(testHashText("SERVER CONTENT")),
+				LocalContentHash:  testHashText("LOCAL DIRTY CONTENT"),
+			},
+		},
+	})
+	fake := newFakeClient()
+	fake.nextRevision = 10
+
+	// When: the next run switches to local-wins, with no new server changes.
+	summary, err := RunSync(context.Background(), testConfigWithPolicy(vault.root, config.ConflictPolicyLocalWins), Options{
+		Client: fake,
+		Now:    fixedNow,
+	})
+
+	// Then: the leftover conflict is resolved by pushing local content, using
+	// the tracked server revision as the base.
+	requireNoError(t, err)
+	if len(summary.Conflicts) != 0 || summary.Pushed != 1 {
+		t.Fatalf("summary = %#v", summary)
+	}
+	vault.requireFileContent("note.md", "LOCAL DIRTY CONTENT")
+	fake.requirePut(t, putCall{path: "note.md", baseRevision: 5, content: "LOCAL DIRTY CONTENT"})
+	state := loadManifest(t, vault.root)
+	if state.Files["note.md"].ServerRevision != 10 {
+		t.Fatalf("note.md revision = %d, want 10", state.Files["note.md"].ServerRevision)
+	}
+	if _, ok := state.Conflicts["note.md"]; ok {
+		t.Fatal("note.md still tracked as a conflict")
+	}
+}
+
+func TestRunSyncTrackedConflict_remoteWinsResolvesLeftoverConflict(t *testing.T) {
+	// Given: same leftover conflict as above, but the policy for this run is
+	// remote-wins.
+	vault := newVaultFixture(t)
+	vault.writeNote("note.md", "LOCAL DIRTY CONTENT")
+	saveManifest(t, vault.root, manifest.Manifest{
+		VaultID:        "vault",
+		DeviceID:       "dev",
+		LastSyncCursor: 5,
+		Files: map[string]manifest.Entry{
+			"note.md": {ServerRevision: 4, ContentHash: testHashText("OLD SYNCED CONTENT"), LastSyncedAt: fixedNowString},
+		},
+		Conflicts: map[string]manifest.Conflict{
+			"note.md": {
+				ServerRevision:    5,
+				ServerContentHash: stringPtr(testHashText("SERVER CONTENT")),
+				LocalContentHash:  testHashText("LOCAL DIRTY CONTENT"),
+			},
+		},
+	})
+	fake := newFakeClient()
+	fake.files["note.md"] = fileData(5, "note.md", "SERVER CONTENT")
+
+	// When
+	summary, err := RunSync(context.Background(), testConfigWithPolicy(vault.root, config.ConflictPolicyRemoteWins), Options{
+		Client: fake,
+		Now:    fixedNow,
+	})
+
+	// Then: the local content is backed up and the server content adopted,
+	// exactly like the existing fresh-conflict remote-wins path.
+	requireNoError(t, err)
+	if len(summary.Conflicts) != 0 || summary.Applied != 1 {
+		t.Fatalf("summary = %#v", summary)
+	}
+	vault.requireFileContent("note.md", "SERVER CONTENT")
+	state := loadManifest(t, vault.root)
+	if state.Files["note.md"].ServerRevision != 5 {
+		t.Fatalf("note.md revision = %d, want 5", state.Files["note.md"].ServerRevision)
+	}
+	if _, ok := state.Conflicts["note.md"]; ok {
+		t.Fatal("note.md still tracked as a conflict")
+	}
+	body := conflictGlob(t, filepath.Join(vault.root, "note.local-backup.conflict.dev.*.md"))
+	if !containsAll(body, "remote-wins", "LOCAL DIRTY CONTENT") {
+		t.Fatalf("backup body missing expected content:\n%s", body)
+	}
+}
+
+func TestRunSyncTrackedConflict_manualLeavesConflictUntouched(t *testing.T) {
+	// Given: the same leftover conflict, but this run keeps the default
+	// manual policy. A conflict is explicit, never an automatic merge, so it
+	// must stay until the user edits the file.
+	vault := newVaultFixture(t)
+	vault.writeNote("note.md", "LOCAL DIRTY CONTENT")
+	tracked := manifest.Conflict{
+		ServerRevision:    5,
+		ServerContentHash: stringPtr(testHashText("SERVER CONTENT")),
+		LocalContentHash:  testHashText("LOCAL DIRTY CONTENT"),
+	}
+	saveManifest(t, vault.root, manifest.Manifest{
+		VaultID:        "vault",
+		DeviceID:       "dev",
+		LastSyncCursor: 5,
+		Files: map[string]manifest.Entry{
+			"note.md": {ServerRevision: 4, ContentHash: testHashText("OLD SYNCED CONTENT"), LastSyncedAt: fixedNowString},
+		},
+		Conflicts: map[string]manifest.Conflict{"note.md": tracked},
+	})
+	fake := newFakeClient()
+
+	// When
+	summary, err := RunSync(context.Background(), testConfig(vault.root), Options{
+		Client: fake,
+		Now:    fixedNow,
+	})
+
+	// Then: nothing is pushed and the tracked conflict is untouched.
+	requireNoError(t, err)
+	if len(fake.puts) != 0 || len(fake.deletes) != 0 {
+		t.Fatalf("puts = %#v, deletes = %#v, want none", fake.puts, fake.deletes)
+	}
+	vault.requireFileContent("note.md", "LOCAL DIRTY CONTENT")
+	state := loadManifest(t, vault.root)
+	requireSameConflict(t, state.Conflicts["note.md"], tracked)
+	_ = summary
+}
+
+func TestRunSyncTrackedConflict_bothSidesDeletedClearsCleanly(t *testing.T) {
+	// Given: the earlier run recorded a server-deleted conflict, and the
+	// local file has since been removed too (e.g. the user deleted it
+	// manually instead of resolving via the conflict). Both sides already
+	// agree; there is nothing to push.
+	vault := newVaultFixture(t)
+	saveManifest(t, vault.root, manifest.Manifest{
+		VaultID:        "vault",
+		DeviceID:       "dev",
+		LastSyncCursor: 5,
+		Files: map[string]manifest.Entry{
+			"note.md": {ServerRevision: 4, ContentHash: testHashText("OLD SYNCED CONTENT"), LastSyncedAt: fixedNowString},
+		},
+		Conflicts: map[string]manifest.Conflict{
+			"note.md": {
+				ServerRevision:   5,
+				LocalContentHash: testHashText("LOCAL DIRTY CONTENT"),
+				ServerDeleted:    true,
+			},
+		},
+	})
+	fake := newFakeClient()
+
+	// When
+	summary, err := RunSync(context.Background(), testConfigWithPolicy(vault.root, config.ConflictPolicyLocalWins), Options{
+		Client: fake,
+		Now:    fixedNow,
+	})
+
+	// Then: no PUT/DELETE calls at all, and both the file entry and the
+	// conflict entry are cleared from the manifest.
+	requireNoError(t, err)
+	if len(fake.puts) != 0 || len(fake.deletes) != 0 {
+		t.Fatalf("puts = %#v, deletes = %#v, want none", fake.puts, fake.deletes)
+	}
+	if len(summary.Conflicts) != 0 {
+		t.Fatalf("summary.Conflicts = %#v, want none", summary.Conflicts)
+	}
+	state := loadManifest(t, vault.root)
+	if _, ok := state.Files["note.md"]; ok {
+		t.Fatal("note.md still tracked in files")
+	}
+	if _, ok := state.Conflicts["note.md"]; ok {
+		t.Fatal("note.md still tracked as a conflict")
+	}
+}
+
+func TestRunSyncTrackedConflict_localWinsUnresolvableWarnsAndKeepsConflict(t *testing.T) {
+	// Given: the leftover conflict from an earlier run, but this time every
+	// PUT attempt on note.md keeps conflicting, so local-wins exhausts its
+	// bounded retries.
+	vault := newVaultFixture(t)
+	vault.writeNote("note.md", "LOCAL DIRTY CONTENT")
+	tracked := manifest.Conflict{
+		ServerRevision:    5,
+		ServerContentHash: stringPtr(testHashText("SERVER CONTENT")),
+		LocalContentHash:  testHashText("LOCAL DIRTY CONTENT"),
+	}
+	saveManifest(t, vault.root, manifest.Manifest{
+		VaultID:        "vault",
+		DeviceID:       "dev",
+		LastSyncCursor: 5,
+		Files: map[string]manifest.Entry{
+			"note.md": {ServerRevision: 4, ContentHash: testHashText("OLD SYNCED CONTENT"), LastSyncedAt: fixedNowString},
+		},
+		Conflicts: map[string]manifest.Conflict{"note.md": tracked},
+	})
+	fake := newFakeClient()
+	fake.putConflict["note.md"] = conflictDetails(5, 0)
+
+	// When
+	summary, err := RunSync(context.Background(), testConfigWithPolicy(vault.root, config.ConflictPolicyLocalWins), Options{
+		Client: fake,
+		Now:    fixedNow,
+	})
+
+	// Then: a warning is recorded and the tracked conflict is left in place
+	// for manual resolution instead of being cleared silently.
+	requireNoError(t, err)
+	if len(summary.Warnings) != 1 {
+		t.Fatalf("warnings = %#v, want one leftover-conflict warning", summary.Warnings)
+	}
+	vault.requireFileContent("note.md", "LOCAL DIRTY CONTENT")
+	state := loadManifest(t, vault.root)
+	requireSameConflict(t, state.Conflicts["note.md"], tracked)
+}
+
+// requireSameConflict compares by value rather than with == because Conflict
+// embeds a *string (ServerContentHash): two Conflicts loaded from separate
+// manifest.Save/Load round-trips never share a pointer even when the
+// contents are identical, so a plain struct comparison would spuriously fail.
+func requireSameConflict(t *testing.T, got, want manifest.Conflict) {
+	t.Helper()
+	gotHash, wantHash := "<nil>", "<nil>"
+	if got.ServerContentHash != nil {
+		gotHash = *got.ServerContentHash
+	}
+	if want.ServerContentHash != nil {
+		wantHash = *want.ServerContentHash
+	}
+	if got.ServerRevision != want.ServerRevision || got.LocalContentHash != want.LocalContentHash || got.ServerDeleted != want.ServerDeleted || gotHash != wantHash {
+		t.Fatalf("tracked conflict changed: %#v (hash %q), want %#v (hash %q)", got, gotHash, want, wantHash)
+	}
+}

@@ -19,6 +19,8 @@ from obsidian_sync.sync_agent.conflict_resolution import (
     resolve_pull_delete_conflict,
     resolve_pull_write_conflict,
     resolve_push_conflict,
+    resolve_push_conflict_local_wins,
+    resolve_push_conflict_remote_wins,
     write_server_content,
 )
 from obsidian_sync.sync_agent.manifest import (
@@ -376,6 +378,7 @@ def _push(
     *,
     skip_paths: set[str],
 ) -> None:
+    _resolve_tracked_conflicts(config, manifest, client, summary, logger, skip_paths)
     for path in local.new:
         if path in skip_paths:
             continue
@@ -399,6 +402,84 @@ def _push(
         if path in skip_paths:
             continue
         _push_delete(config, manifest, client, summary, logger, path)
+
+
+def _resolve_tracked_conflicts(
+    config: AgentConfig,
+    manifest: Manifest,
+    client: SyncClient,
+    summary: SyncSummary,
+    logger: logging.Logger,
+    skip_paths: set[str],
+) -> None:
+    """Resolve conflicts left over in the manifest from an earlier run.
+
+    ``resolve_push_conflict`` is only reached from the ``SyncConflictError``
+    handlers in ``_push_upsert``/``_push_delete``, so it only ever applies
+    to a *fresh* 409 on our own PUT/DELETE. A conflict already recorded in
+    ``manifest.conflicts`` by a prior run (manual policy, or a local-wins
+    attempt that exhausted its retries) is otherwise never revisited: the
+    subsequent modified-file push loop keeps refusing to push it as long as
+    the local file still hashes to the tracked ``local_content_hash``,
+    leaving it stuck forever even though the configured policy says how to
+    resolve it. ``manual`` is exempt by design: a conflict is explicit,
+    never an automatic merge, so it must wait for the user to edit the file.
+    """
+    # Guard by allow-list, not by excluding 'manual': an AgentConfig built
+    # directly (as in several existing tests) can leave conflict_policy at a
+    # value that should not be treated as auto-resolvable, so only the two
+    # policies we know how to auto-resolve take this path.
+    if config.conflict_policy not in ('local-wins', 'remote-wins'):
+        return
+    for path in sorted(manifest.conflicts):
+        if path in skip_paths:
+            continue
+        conflict = manifest.conflicts[path]
+        destination = safe_vault_destination(config.vault_root, path)
+        local_exists = destination.exists()
+        if conflict.server_deleted and not local_exists:
+            # Both sides already agree the file is gone; nothing to push.
+            manifest.files.pop(path, None)
+            manifest.conflicts.pop(path, None)
+            _save_manifest(config, manifest)
+            skip_paths.add(path)
+            continue
+
+        is_delete = not local_exists
+        local_content = destination.read_bytes() if local_exists else None
+
+        if config.conflict_policy == 'local-wins':
+            resolved = resolve_push_conflict_local_wins(
+                config,
+                client,
+                manifest,
+                summary,
+                logger,
+                path,
+                local_content,
+                server_revision=conflict.server_revision,
+                is_delete=is_delete,
+            )
+            if not resolved:
+                message = (
+                    f'local-wins could not resolve tracked conflict on {path}; '
+                    'leaving for manual resolution'
+                )
+                logger.warning(message)
+                summary.warnings.append(message)
+                continue
+        else:
+            resolve_push_conflict_remote_wins(
+                config,
+                client,
+                manifest,
+                summary,
+                logger,
+                path,
+                local_content,
+                is_delete=is_delete,
+            )
+        skip_paths.add(path)
 
 
 def _push_upsert(

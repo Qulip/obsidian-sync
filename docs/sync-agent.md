@@ -341,6 +341,12 @@ conflict 파일은 `(경로, 서버 revision)` 조합당 하나만 생성됩니�
 서버 삭제 conflict에서 사용자가 원본 파일을 삭제하면 서버 삭제를 수락한
 것으로 보고 로컬 manifest만 정리합니다.
 
+위 내용은 `manual` 정책 기준이며, `manual`에서는 conflict가 원본 파일을
+직접 편집해야만(또는 서버 삭제를 로컬 삭제로 수락해야만) 해소됩니다.
+`local-wins`/`remote-wins` 정책에서는 이전 실행이 남긴 conflict도 다음
+sync 실행에서 자동으로 재해소됩니다 — 자세한 내용은
+[자동 해결 정책](#자동-해결-정책-local-wins-remote-wins) 섹션을 참고하세요.
+
 ### 수동 해결 방법 (`manual` 정책)
 
 1. conflict 파일을 열어 Local Version과 Server Version 비교
@@ -359,6 +365,13 @@ Conflict 파일 자체는 제외 패턴(`*.conflict.*.md`)에 의해 서버로 p
 가능합니다. 이를 활용해 `manual` 외에 두 가지 자동 정책을 제공합니다.
 정책은 pull 단계 충돌(서버 변경 수신 시 로컬도 변경된 경우)과 push 단계
 충돌(내가 보낸 PUT/DELETE가 409로 거부된 경우) 양쪽에 동일하게 적용됩니다.
+
+또한 `local-wins`/`remote-wins`는 이전 실행에서 이미 manifest에 기록되어
+남아 있는 conflict도 push 단계 시작 시 함께 재시도합니다. 그렇지 않으면
+정책을 나중에 `manual`에서 `local-wins`/`remote-wins`로 바꿔도 이전
+conflict는 영영 해소되지 않고 manifest에 남습니다. 서버가 이미 해당
+경로를 삭제했고 로컬 파일도 이미 지워진 경우(양쪽 모두 삭제 상태로 합의)는
+재push 없이 manifest 항목만 정리합니다.
 
 ### `local-wins`
 

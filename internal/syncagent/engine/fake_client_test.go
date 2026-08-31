@@ -9,7 +9,10 @@ import (
 )
 
 type fakeClient struct {
-	changes             []client.SyncChangeItem
+	changes []client.SyncChangeItem
+	// changesPageSize opts into bounded pages for pagination-focused tests.
+	// A zero value preserves the historical all-results fake behavior.
+	changesPageSize     int
 	files               map[string]client.FileContentData
 	getFileErrors       map[string]error
 	getFileCalls        map[string]int
@@ -83,6 +86,13 @@ func (f *fakeClient) GetChanges(_ context.Context, _ string, query client.Change
 		if item.Revision > query.Since {
 			changes = append(changes, item)
 		}
+	}
+	pageSize := query.Limit
+	if f.changesPageSize > 0 && (pageSize == 0 || f.changesPageSize < pageSize) {
+		pageSize = f.changesPageSize
+	}
+	if pageSize > 0 && len(changes) > pageSize {
+		changes = changes[:pageSize]
 	}
 	toCursor := query.Since
 	for _, item := range changes {

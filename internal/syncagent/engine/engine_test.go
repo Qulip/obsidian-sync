@@ -60,6 +60,84 @@ func TestRunSyncPullWriteDeleteAndCursor(t *testing.T) {
 	}
 }
 
+func TestRunSyncFreshBootstrapCoalescesDeleteWithoutFetchingCurrentFile(t *testing.T) {
+	// Given
+	vault := newVaultFixture(t)
+	saveManifest(t, vault.root, manifest.Manifest{
+		VaultID:        "vault",
+		DeviceID:       "dev",
+		LastSyncCursor: 0,
+		Files:          map[string]manifest.Entry{},
+		Conflicts:      map[string]manifest.Conflict{},
+	})
+	fake := newFakeClient()
+	fake.changes = []client.SyncChangeItem{
+		syncChange(changeSpec{revision: 1, path: "_sync_verify.md", eventType: "CREATE", contentHash: testHashPtr("stale")}),
+		syncChange(changeSpec{revision: 2, path: "_sync_verify.md", eventType: "UPDATE", contentHash: testHashPtr("superseded")}),
+		syncChange(changeSpec{revision: 3, path: "_sync_verify.md", eventType: "DELETE", deleted: true}),
+	}
+
+	// When
+	summary, err := RunSync(context.Background(), testConfig(vault.root), Options{
+		Client: fake,
+		Now:    fixedNow,
+	})
+
+	// Then
+	requireNoError(t, err)
+	if summary.Pulled != 3 {
+		t.Fatalf("summary.Pulled = %d, want 3", summary.Pulled)
+	}
+	if fake.getFileCalls["_sync_verify.md"] != 0 {
+		t.Fatalf("current-file GET count = %d, want 0", fake.getFileCalls["_sync_verify.md"])
+	}
+	if exists(filepath.Join(vault.root, "_sync_verify.md")) {
+		t.Fatal("_sync_verify.md exists after final remote DELETE")
+	}
+	if _, ok := loadManifest(t, vault.root).Files["_sync_verify.md"]; ok {
+		t.Fatal("_sync_verify.md remains tracked after final remote DELETE")
+	}
+}
+
+func TestRunSyncFreshBootstrapCoalescesWriteWithSingleCurrentFileFetch(t *testing.T) {
+	// Given
+	vault := newVaultFixture(t)
+	saveManifest(t, vault.root, manifest.Manifest{
+		VaultID:        "vault",
+		DeviceID:       "dev",
+		LastSyncCursor: 0,
+		Files:          map[string]manifest.Entry{},
+		Conflicts:      map[string]manifest.Conflict{},
+	})
+	fake := newFakeClient()
+	fake.files["_sync_verify.md"] = fileData(3, "_sync_verify.md", "final")
+	fake.changes = []client.SyncChangeItem{
+		syncChange(changeSpec{revision: 1, path: "_sync_verify.md", eventType: "CREATE", contentHash: testHashPtr("stale")}),
+		syncChange(changeSpec{revision: 2, path: "_sync_verify.md", eventType: "UPDATE", contentHash: testHashPtr("superseded")}),
+		syncChange(changeSpec{revision: 3, path: "_sync_verify.md", eventType: "UPDATE", contentHash: testHashPtr("final")}),
+	}
+
+	// When
+	summary, err := RunSync(context.Background(), testConfig(vault.root), Options{
+		Client: fake,
+		Now:    fixedNow,
+	})
+
+	// Then
+	requireNoError(t, err)
+	if summary.Pulled != 3 || summary.Applied != 1 {
+		t.Fatalf("summary = %#v, want pulled 3 and applied 1", summary)
+	}
+	if fake.getFileCalls["_sync_verify.md"] != 1 {
+		t.Fatalf("current-file GET count = %d, want 1", fake.getFileCalls["_sync_verify.md"])
+	}
+	vault.requireFileContent("_sync_verify.md", "final")
+	state := loadManifest(t, vault.root)
+	if state.Files["_sync_verify.md"].ServerRevision != 3 {
+		t.Fatalf("_sync_verify.md server revision = %d, want 3", state.Files["_sync_verify.md"].ServerRevision)
+	}
+}
+
 func TestRunSyncPersistsPullApplyBeforeLaterPullFailure(t *testing.T) {
 	// Given
 	vault := newVaultFixture(t)

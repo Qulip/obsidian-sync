@@ -12,6 +12,7 @@ type fakeClient struct {
 	changes             []client.SyncChangeItem
 	files               map[string]client.FileContentData
 	getFileErrors       map[string]error
+	getFileCalls        map[string]int
 	status              client.SyncStatusData
 	putConflict         map[string]map[string]json.RawMessage
 	deleteConflict      map[string]map[string]json.RawMessage
@@ -49,6 +50,7 @@ func newFakeClient() *fakeClient {
 	return &fakeClient{
 		files:                  map[string]client.FileContentData{},
 		getFileErrors:          map[string]error{},
+		getFileCalls:           map[string]int{},
 		putConflict:            map[string]map[string]json.RawMessage{},
 		deleteConflict:         map[string]map[string]json.RawMessage{},
 		putConflictAttempts:    map[string]int{},
@@ -97,6 +99,7 @@ func (f *fakeClient) GetStatus(_ context.Context, _ string, query client.StatusR
 }
 
 func (f *fakeClient) GetFile(_ context.Context, ref client.FileRef) (client.FileContentData, error) {
+	f.getFileCalls[ref.Path]++
 	if err, ok := f.getFileErrors[ref.Path]; ok {
 		return client.FileContentData{}, err
 	}

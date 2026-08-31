@@ -25,6 +25,10 @@ type pullChange struct {
 
 func (r *syncRun) pull(deviceID string) error {
 	cursor := r.state.LastSyncCursor
+	// A cursor-zero pull without a device ID is the historical bootstrap;
+	// apply only the final event for each path after all pages are fetched.
+	bootstrap := deviceID == "" && cursor == 0
+	var pending []client.SyncChangeItem
 	for {
 		page, err := r.syncClient.GetChanges(r.ctx, r.cfg.VaultID, client.ChangesRequest{
 			Since:    cursor,
@@ -32,12 +36,22 @@ func (r *syncRun) pull(deviceID string) error {
 			Limit:    client.DefaultPageLimit,
 		})
 		if err != nil {
+			if bootstrap {
+				if applyErr := r.applyChanges(coalesceChanges(pending)); applyErr != nil {
+					return applyErr
+				}
+			}
 			return fmt.Errorf("get changes: %w", err)
 		}
-		for _, item := range page.Changes {
-			r.summary.Pulled++
-			if err := r.applyChange(item); err != nil {
-				return err
+		if bootstrap {
+			r.summary.Pulled += len(page.Changes)
+			pending = append(pending, page.Changes...)
+		} else {
+			for _, item := range page.Changes {
+				r.summary.Pulled++
+				if err := r.applyChange(item); err != nil {
+					return err
+				}
 			}
 		}
 		if len(page.Changes) == 0 || page.ToCursor <= cursor {
@@ -48,11 +62,39 @@ func (r *syncRun) pull(deviceID string) error {
 		}
 		cursor = page.ToCursor
 	}
+	if bootstrap {
+		if err := r.applyChanges(coalesceChanges(pending)); err != nil {
+			return err
+		}
+	}
 	if cursor > r.state.LastSyncCursor && len(r.unsafePullPaths) == 0 {
 		r.state.LastSyncCursor = cursor
 		return r.saveManifest()
 	}
 	return nil
+}
+
+func (r *syncRun) applyChanges(changes []client.SyncChangeItem) error {
+	for _, item := range changes {
+		if err := r.applyChange(item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func coalesceChanges(changes []client.SyncChangeItem) []client.SyncChangeItem {
+	latestIndex := make(map[string]int, len(changes))
+	for index, item := range changes {
+		latestIndex[item.Path] = index
+	}
+	coalesced := make([]client.SyncChangeItem, 0, len(latestIndex))
+	for index, item := range changes {
+		if latestIndex[item.Path] == index {
+			coalesced = append(coalesced, item)
+		}
+	}
+	return coalesced
 }
 
 func (r *syncRun) applyChange(item client.SyncChangeItem) error {

@@ -209,6 +209,7 @@ Admin token은 일반 API와 MCP에서 **의도적으로 거부**됩니다. 토�
 | `OBSIDIAN_SYNC_OLLAMA_BASE_URL` | 아니오 | `http://localhost:11434` | Ollama 주소 |
 | `OBSIDIAN_SYNC_EMBEDDING_MODEL` | 아니오 | `bge-m3` | 임베딩 모델 |
 | `OBSIDIAN_SYNC_EMBEDDING_DIMENSION` | 아니오 | `1024` | 벡터 차원 |
+| `OBSIDIAN_SYNC_MCP_ALLOWED_HOSTS` | 아니오 | `[]` | MCP에서 허용할 정확한 `Host` 헤더의 JSON 배열 (예: `["www.google.com"]`) |
 | `OBSIDIAN_SYNC_VAULT_STORAGE_ROOT` | 아니오 | `vaults` | Vault 저장 루트 |
 | `OBSIDIAN_SYNC_VAULT_ARCHIVE_ROOT` | 아니오 | `archives` | 아카이브 루트 |
 | `OBSIDIAN_SYNC_POST_SYNC_INDEXING_ENABLED` | 아니오 | `true` | 저장 직후 best-effort 인덱싱 예약 |

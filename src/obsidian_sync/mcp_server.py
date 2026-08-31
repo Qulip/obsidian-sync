@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from fastapi import FastAPI
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.requests import Request
 from starlette.types import ASGIApp
@@ -36,12 +37,24 @@ from obsidian_sync.services.search import KnowledgeSearchService, SearchLogServi
 from obsidian_sync.services.storage import VaultStorage
 from obsidian_sync.services.vault_sync import VaultSyncService
 
+_LOCALHOST_ALLOWED_HOSTS = ['127.0.0.1:*', 'localhost:*', '[::1]:*']
+_LOCALHOST_ALLOWED_ORIGINS = [
+    'http://127.0.0.1:*',
+    'http://localhost:*',
+    'http://[::1]:*',
+]
 
-def create_mcp_server(app: FastAPI) -> FastMCP:
+
+def create_mcp_server(app: FastAPI, settings: Settings) -> FastMCP:
     mcp = FastMCP(
         name=app.title,
         streamable_http_path='/mcp',
         stateless_http=True,
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[*_LOCALHOST_ALLOWED_HOSTS, *settings.mcp_allowed_hosts],
+            allowed_origins=_LOCALHOST_ALLOWED_ORIGINS,
+        ),
     )
 
     @mcp.tool(name='list_vaults_mcp_vaults_get')

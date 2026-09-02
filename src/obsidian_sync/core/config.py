@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     embedding_dimension: int = 1024
     ollama_base_url: str = 'http://localhost:11434'
     ollama_timeout_seconds: float = 30.0
+    mcp_allowed_hosts: list[str] = Field(default_factory=list)
     vault_storage_root: Path = Path('vaults')
     vault_archive_root: Path = Path('archives')
     sync_max_content_bytes: int = 10 * 1024 * 1024

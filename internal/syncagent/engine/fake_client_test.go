@@ -9,9 +9,13 @@ import (
 )
 
 type fakeClient struct {
-	changes             []client.SyncChangeItem
+	changes []client.SyncChangeItem
+	// changesPageSize opts into bounded pages for pagination-focused tests.
+	// A zero value preserves the historical all-results fake behavior.
+	changesPageSize     int
 	files               map[string]client.FileContentData
 	getFileErrors       map[string]error
+	getFileCalls        map[string]int
 	status              client.SyncStatusData
 	putConflict         map[string]map[string]json.RawMessage
 	deleteConflict      map[string]map[string]json.RawMessage
@@ -49,6 +53,7 @@ func newFakeClient() *fakeClient {
 	return &fakeClient{
 		files:                  map[string]client.FileContentData{},
 		getFileErrors:          map[string]error{},
+		getFileCalls:           map[string]int{},
 		putConflict:            map[string]map[string]json.RawMessage{},
 		deleteConflict:         map[string]map[string]json.RawMessage{},
 		putConflictAttempts:    map[string]int{},
@@ -82,6 +87,13 @@ func (f *fakeClient) GetChanges(_ context.Context, _ string, query client.Change
 			changes = append(changes, item)
 		}
 	}
+	pageSize := query.Limit
+	if f.changesPageSize > 0 && (pageSize == 0 || f.changesPageSize < pageSize) {
+		pageSize = f.changesPageSize
+	}
+	if pageSize > 0 && len(changes) > pageSize {
+		changes = changes[:pageSize]
+	}
 	toCursor := query.Since
 	for _, item := range changes {
 		if item.Revision > toCursor {
@@ -97,6 +109,7 @@ func (f *fakeClient) GetStatus(_ context.Context, _ string, query client.StatusR
 }
 
 func (f *fakeClient) GetFile(_ context.Context, ref client.FileRef) (client.FileContentData, error) {
+	f.getFileCalls[ref.Path]++
 	if err, ok := f.getFileErrors[ref.Path]; ok {
 		return client.FileContentData{}, err
 	}

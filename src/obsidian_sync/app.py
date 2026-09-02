@@ -125,7 +125,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(mcp_router)
 
-    mcp_server = create_mcp_server(app)
+    mcp_server = create_mcp_server(app, resolved_settings)
     app.mount('', create_mcp_app(mcp_server))
 
     return app
